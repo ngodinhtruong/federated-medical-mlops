@@ -1,0 +1,35 @@
+services:
+  # fl-client:
+  #   build: .
+  #   image: fl-client:latest
+  #   container_name: fl-client
+  #   environment:
+  #     - CLIENT_ID=A
+  #     - CLIENT_SEED=1
+  #     - FL_SERVER_ADDRESS=host.docker.internal:8080
+  #   volumes:
+  #     - .:/opt/fl
+  airflow:
+    image: apache/airflow:2.8.0
+    # container_name: airflow_client_${CLIENT_ID}
+    environment:
+      # Core
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+
+      - _AIRFLOW_WWW_USER_USERNAME=changeme
+      - _AIRFLOW_WWW_USER_PASSWORD=changeme
+
+      - CLIENT_ID=${CLIENT_ID}
+      - CLIENT_SEED=${CLIENT_SEED}
+      - FL_SERVER_ADDRESS=${FL_SERVER_ADDRESS}
+
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - /var/run/docker.sock:/var/run/docker.sock  
+      - .:/opt/fl                                  
+
+    ports:
+      - "${AIRFLOW_PORT}:8080"
+    
+    command: standalone
