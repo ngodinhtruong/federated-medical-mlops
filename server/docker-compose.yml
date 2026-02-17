@@ -1,6 +1,28 @@
 version: "3.8"
 
 services:
+  fl-server:
+    image: fl-server:latest
+    container_name: fl-server
+    restart: unless-stopped
+
+    command: ["/bin/sh", "/opt/fl/entrypoint_fl.sh"]
+
+    environment:
+      FL_SERVER_ADDRESS: "0.0.0.0:8080"
+      FL_ROUNDS: 5
+      FL_MIN_CLIENTS: 2
+      FL_MIN_FIT_CLIENTS: 2
+      FL_MIN_EVAL_CLIENTS: 2
+      SERVER_LOG_LEVEL: INFO
+    networks:
+      - project_default
+    volumes:
+      - .:/opt/fl
+
+    ports:
+      - "8080:8080"
+
 
   postgres:
     image: postgres:13
@@ -94,3 +116,6 @@ services:
 
 volumes:
   postgres-db-volume:
+networks:
+  project_default:
+    external: true

@@ -26,9 +26,6 @@ from data.load_data import load_test_ds
 from minio import Minio
 
 
-# =====================
-# Logging (VN timezone) - GIỮ NGUYÊN
-# =====================
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 LOG_DIR = "/opt/fl/logs"
@@ -40,9 +37,11 @@ LOG_FILE = os.path.join(LOG_DIR, f"fl_server_{run_ts}.log")
 logger = logging.getLogger("fl_server")
 logger.setLevel(logging.INFO)
 
+
 class VNFormatter(logging.Formatter):
     def converter(self, timestamp):
         return datetime.fromtimestamp(timestamp, VN_TZ).timetuple()
+
 
 formatter = VNFormatter(
     "[%(asctime)s] [%(levelname)s] %(message)s",
@@ -63,9 +62,6 @@ if not logger.handlers:
 logger.info(f"Logging initialized → {LOG_FILE}")
 
 
-# =====================
-# MinIO - GIỮ NGUYÊN
-# =====================
 MINIO_ENDPOINT = "minio:9000"
 MINIO_USER = "admin"
 MINIO_PASS = "admin12345"
@@ -78,8 +74,8 @@ minio_client = Minio(
     secure=False,
 )
 
+
 def get_eligible_clients():
-    """Đọc status động: client nào has_data && can_train thì eligible."""
     date = datetime.utcnow().strftime("%Y-%m-%d")
     prefix = f"status/{date}/"
 
@@ -92,9 +88,6 @@ def get_eligible_clients():
     return eligible
 
 
-# =====================
-# Metrics - GIỮ NGUYÊN
-# =====================
 def binary_metrics(y_true, y_pred):
     y_true = y_true.astype(int)
     y_pred = y_pred.astype(int)
@@ -115,14 +108,12 @@ def binary_metrics(y_true, y_pred):
 def call_get_parameters(cp, ins):
     return cp.get_parameters(ins, timeout=None)
 
+
 def call_fit(cp, fit_ins):
     return cp.fit(fit_ins, timeout=None)
 
 
 def start_flower_grpc_server(server_address: str):
-    """
-    Trả về (grpc_server, client_manager)
-    """
     try:
         from flwr.server.client_manager import SimpleClientManager
         from flwr.server.grpc_server import start_grpc_server
@@ -135,14 +126,11 @@ def start_flower_grpc_server(server_address: str):
     grpc_server = start_grpc_server(
         server_address=server_address,
         client_manager=client_manager,
-        max_message_length=536870912,  # 512MB
+        max_message_length=536870912,
     )
     return grpc_server, client_manager
 
 
-# =====================
-# Helper: build model + load parameters (GIỮ logic cuối của bạn)
-# =====================
 def build_model_from_parameters(params, input_shape):
     flat_dim = int(np.prod(input_shape))
     model = MLP(input_dim=flat_dim)
@@ -157,7 +145,6 @@ def build_model_from_parameters(params, input_shape):
 
 
 def server_val_loss(params, val_X, val_y):
-    """Dùng BCE giống client."""
     model = build_model_from_parameters(params, val_X.shape[1:])
     loss_fn = nn.BCELoss()
 
@@ -168,9 +155,6 @@ def server_val_loss(params, val_X, val_y):
     return float(loss.item())
 
 
-# =====================
-# AOFL Async Orchestrator (GIỮ NGUYÊN công thức update của bạn)
-# =====================
 class AOFLAsyncServer:
     def __init__(
         self,
@@ -179,8 +163,9 @@ class AOFLAsyncServer:
         val_y,
         *,
         alpha0=0.5,
-        max_updates=200,       # max update mỗi cycle
+        max_updates=200,
         concurrency=3,
+        max_rounds_per_cycle=10,
     ):
         self.client_manager = client_manager
         self.val_X = val_X
@@ -189,8 +174,8 @@ class AOFLAsyncServer:
         self.alpha0 = float(alpha0)
         self.max_updates = int(max_updates)
         self.concurrency = int(concurrency)
+        self.max_rounds_per_cycle = int(max_rounds_per_cycle)
 
-        # --- AOFL state ---
         self.version = 0
         self.global_parameters = None
         self.latest_parameters = None
@@ -198,20 +183,22 @@ class AOFLAsyncServer:
         self.best_loss = float("inf")
         self.best_parameters = None
 
-        # map: flower_cid -> logical client_id (A/B/...)
         self.cid_to_client_id = {}
 
-        # --- eligibility cache ---
         self._eligible_cache = set()
         self._eligible_cache_ts = 0.0
         self.eligibility_ttl_sec = float(os.getenv("AOFL_ELIG_TTL_SEC", "2.0"))
 
-        # --- cycle control ---
         self.idle_timeout_sec = float(os.getenv("AOFL_IDLE_TIMEOUT_SEC", "30.0"))
 
         logger.info(f"Online Fedarated Learning started: (alpha0={self.alpha0})")
-        logger.info(f"[AOFL-ASYNC] concurrency={self.concurrency} max_updates={self.max_updates}")
-        logger.info(f"[AOFL-ASYNC] elig_ttl={self.eligibility_ttl_sec}s idle_timeout={self.idle_timeout_sec}s")
+        logger.info(
+            f"[AOFL-ASYNC] concurrency={self.concurrency} "
+            f"max_updates={self.max_updates} max_rounds_per_cycle={self.max_rounds_per_cycle}"
+        )
+        logger.info(
+            f"[AOFL-ASYNC] elig_ttl={self.eligibility_ttl_sec}s idle_timeout={self.idle_timeout_sec}s"
+        )
 
     def _refresh_eligible(self):
         now = time.time()
@@ -263,14 +250,16 @@ class AOFLAsyncServer:
         return cp, fit_res
 
     def run_one_cycle(self):
-        """Chạy 1 cycle: apply tối đa max_updates hoặc dừng khi idle quá lâu."""
         if self.global_parameters is None:
             self._get_initial_parameters()
 
-        # reset best tracking mỗi cycle (GIỮ tinh thần “best trong lần chạy”)
         self.best_loss = float("inf")
         self.best_parameters = self.global_parameters
-        
+
+        self._eligible_cache = set()
+        self._eligible_cache_ts = 0.0
+        self.cid_to_client_id = {}
+
         executor = ThreadPoolExecutor(max_workers=self.concurrency)
 
         inflight = {}
@@ -280,11 +269,9 @@ class AOFLAsyncServer:
         last_progress_ts = time.time()
 
         def snapshot_parameters(params):
-            # snapshot cứng để tránh reuse reference
             return ndarrays_to_parameters(parameters_to_ndarrays(params))
 
         def pick_idle_client_for_dispatch():
-            """Ưu tiên: client đã map được logical_id và đang eligible."""
             clients = list(self.client_manager.all().values())
             if not clients:
                 return None
@@ -309,7 +296,6 @@ class AOFLAsyncServer:
             if eligible_idle:
                 return random.choice(eligible_idle)
 
-            # nếu chưa có ai mapped eligible, ta cho 1 "probe" để lấy client_id
             if unknown_idle and eligible_now:
                 return random.choice(unknown_idle)
 
@@ -317,6 +303,9 @@ class AOFLAsyncServer:
 
         def submit_one():
             nonlocal round_id
+
+            if round_id >= self.max_rounds_per_cycle:
+                return False
 
             cp = pick_idle_client_for_dispatch()
             if cp is None:
@@ -340,18 +329,20 @@ class AOFLAsyncServer:
             busy_cids.add(fc)
 
             logger.info(
-                f"[DISPATCH] round={round_id} -> flower_cid={fc} "
+                f"[DISPATCH] round={round_id}/{self.max_rounds_per_cycle} -> flower_cid={fc} "
                 f"base_version={base_version_snapshot} inflight={len(inflight)}/{self.concurrency}"
             )
             return True
 
-        # fill inflight ban đầu (nếu có eligible)
         while len(inflight) < self.concurrency:
             if not submit_one():
                 break
 
-        while updates_applied < self.max_updates:
-            # nếu không có inflight, thử submit; nếu không submit được -> idle check
+        while True:
+            if round_id >= self.max_rounds_per_cycle and not inflight:
+                logger.info(f"[AOFL-ASYNC] Reached max rounds per cycle: {self.max_rounds_per_cycle}")
+                break
+
             if not inflight:
                 if submit_one():
                     last_progress_ts = time.time()
@@ -364,7 +355,6 @@ class AOFLAsyncServer:
                 time.sleep(0.5)
                 continue
 
-            # chờ 1 kết quả về (apply asap)
             for fut in as_completed(list(inflight.keys()), timeout=None):
                 rid, dispatched_base_version, fc = inflight.pop(fut)
                 busy_cids.discard(fc)
@@ -379,7 +369,6 @@ class AOFLAsyncServer:
                 m = fit_res.metrics or {}
                 client_id = str(m.get("client_id", "unknown"))
 
-                # update mapping
                 flower_cid = str(getattr(cp, "cid", ""))
                 self.cid_to_client_id[flower_cid] = client_id
 
@@ -391,7 +380,6 @@ class AOFLAsyncServer:
                     f"base_version={base_version} server_version_before={cur_ver_before}"
                 )
 
-                # --- log như bạn ---
                 logger.info(
                     f"[ROUND {rid}][CLIENT {client_id}] "
                     f"train_loss={m.get('train_loss'):.4f}, "
@@ -399,6 +387,7 @@ class AOFLAsyncServer:
                     f"val_loss={m.get('val_loss'):.4f}, "
                     f"val_acc={m.get('val_acc'):.4f}"
                 )
+
                 logger.info(
                     f"[ROUND {rid}][GLOBAL] "
                     f"train_loss={m.get('train_loss'):.4f}, "
@@ -407,24 +396,20 @@ class AOFLAsyncServer:
                     f"val_acc={m.get('val_acc'):.4f}"
                 )
 
-                # --- CHỐT: chỉ apply update nếu client hiện đang eligible ---
                 eligible_now = self._refresh_eligible()
                 if client_id not in eligible_now:
-                    logger.info(
-                        f"[AOFL][ROUND {rid}] SKIP update because client {client_id} is NOT eligible now"
-                    )
+                    logger.info(f"[AOFL][ROUND {rid}] SKIP update because client {client_id} is NOT eligible now")
                     last_progress_ts = time.time()
-                    # vẫn cố gắng giữ concurrency
-                    submit_one()
+                    while len(inflight) < self.concurrency:
+                        if not submit_one():
+                            break
                     break
 
-                # ---- GIỮ NGUYÊN ONLINE UPDATE RULE CỦA BẠN ----
                 tau = max(0, self.version - base_version)
                 alpha = self.alpha0 / (1 + tau)
 
                 global_nd = parameters_to_ndarrays(self.global_parameters)
                 client_nd = parameters_to_ndarrays(fit_res.parameters)
-
                 global_nd = [(1 - alpha) * g + alpha * c for g, c in zip(global_nd, client_nd)]
 
                 self.version += 1
@@ -441,7 +426,6 @@ class AOFLAsyncServer:
                 self.global_parameters = ndarrays_to_parameters(global_nd)
                 self.latest_parameters = self.global_parameters
 
-                # best tracking (server-side loss)
                 loss = server_val_loss(self.latest_parameters, self.val_X, self.val_y)
                 logger.info(f"Round {rid} | global_loss={loss:.6f}")
 
@@ -450,24 +434,24 @@ class AOFLAsyncServer:
                     self.best_parameters = self.latest_parameters
                     logger.info(f"NEW BEST MODEL at round {rid} (loss={loss:.6f})")
 
-                # top-up inflight
                 while len(inflight) < self.concurrency:
                     if not submit_one():
                         break
 
-                break  # apply 1 update mỗi vòng wake
+                break
 
         executor.shutdown(wait=True)
 
-        # FINAL VALIDATION theo best model của cycle
         logger.info("===== FINAL VALIDATION (BEST MODEL) =====")
+
         model = build_model_from_parameters(self.best_parameters, self.val_X.shape[1:])
+
         with torch.no_grad():
             X = self.val_X.view(self.val_X.size(0), -1)
             logits = model(X)
-            preds = (logits > 0.5).int().numpy()
+            preds = (logits > 0.5).int().cpu().numpy()
 
-        y_true = self.val_y.numpy()
+        y_true = self.val_y.cpu().numpy()
         y_pred = preds
 
         acc, prec, rec, f1 = binary_metrics(y_true, y_pred)
@@ -478,7 +462,18 @@ class AOFLAsyncServer:
         logger.info(f"Recall   : {rec:.6f}")
         logger.info(f"F1-score : {f1:.6f}")
 
-        logger.info(f"[AOFL-ASYNC] Cycle finished: updates_applied={updates_applied}/{self.max_updates}")
+        logger.info(
+            f"[AOFL-ASYNC] Cycle finished: rounds_dispatched={round_id}/{self.max_rounds_per_cycle} "
+            f"updates_applied={updates_applied}"
+        )
+
+
+def stage_train(aofl):
+    aofl.run_one_cycle()
+
+
+def stage_next(client_manager):
+    time.sleep(1.0)
 
 
 def main():
@@ -489,14 +484,13 @@ def main():
     val_y = val_y.int()
 
     server_address = os.getenv("FL_SERVER_ADDRESS", "0.0.0.0:8080")
-
-    # start grpc server (networking always on)
     grpc_server, client_manager = start_flower_grpc_server(server_address)
     logger.info(f"[SERVER] gRPC listening at {server_address}")
 
     alpha0 = float(os.getenv("AOFL_ALPHA0", "0.5"))
     max_updates = int(os.getenv("AOFL_MAX_UPDATES", "200"))
     concurrency = int(os.getenv("AOFL_CONCURRENCY", "3"))
+    max_rounds_per_cycle = int(os.getenv("AOFL_MAX_ROUNDS_PER_CYCLE", "10"))
 
     aofl = AOFLAsyncServer(
         client_manager=client_manager,
@@ -505,21 +499,23 @@ def main():
         alpha0=alpha0,
         max_updates=max_updates,
         concurrency=concurrency,
+        max_rounds_per_cycle=max_rounds_per_cycle,
     )
 
-    # RUN FOREVER theo ý bạn: train xong -> reset cycle -> tiếp tục chờ data mới
-    sleep_between_cycles = float(os.getenv("AOFL_SLEEP_BETWEEN_CYCLES_SEC", "2.0"))
-    logger.info(f"[AOFL-ASYNC] run_forever=1 sleep_between_cycles={sleep_between_cycles}s")
+    stage = os.getenv("PIPELINE_STAGE", "train")
 
-    while True:
-        try:
-            aofl.run_one_cycle()
-        except Exception as e:
-            logger.exception(f"[AOFL-ASYNC] Cycle crashed: {e}")
+    try:
+        if stage == "train":
+            stage_train(aofl)
+            stage = "next"
+            logger.info("[PIPELINE] Switch stage -> next")
 
-        time.sleep(sleep_between_cycles)
-
-    # (không stop grpc_server để luôn sẵn sàng; nếu bạn muốn stop khi kill process thì OS sẽ dọn)
+        if stage == "next":
+            stage_next(client_manager)
+            logger.info("[PIPELINE] Next stage done")
+    finally:
+        grpc_server.stop(grace=None)
+        logger.info("[SERVER] gRPC stopped")
 
 
 if __name__ == "__main__":

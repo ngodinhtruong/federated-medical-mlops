@@ -8,16 +8,13 @@ from zoneinfo import ZoneInfo
 import flwr as fl
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader, random_split
+from torch.utils.data import DataLoader
 
 from model.MLP import MLP
 from data.load_data import load_data_split
 
 DEVICE = "cpu"
 
-# =========================
-# Logging (same as server)
-# =========================
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 LOG_DIR = "/opt/fl/logs"
@@ -30,9 +27,11 @@ LOG_FILE = os.path.join(LOG_DIR, f"fl_client_{CLIENT_ID_FOR_LOG}_{run_ts}.log")
 logger = logging.getLogger(f"fl_client_{CLIENT_ID_FOR_LOG}")
 logger.setLevel(logging.INFO)
 
+
 class VNFormatter(logging.Formatter):
     def converter(self, timestamp):
         return datetime.fromtimestamp(timestamp, VN_TZ).timetuple()
+
 
 formatter = VNFormatter(
     "[%(asctime)s] [%(levelname)s] %(message)s",
@@ -56,15 +55,15 @@ logger.info(f"Logging initialized → {LOG_FILE}")
 class FLClient(fl.client.NumPyClient):
     def __init__(self, seed):
         self.client_id = os.getenv("CLIENT_ID", "unknown")
+        self.stop_after_round = int(os.getenv("CLIENT_STOP_AFTER_ROUND", "0"))
 
         self.delay_sec = 3
         self.delay_jitter_sec = 3
 
-        # ===== LOAD DATA =====
         self.train_set, self.val_set = load_data_split(seed=seed)
 
         X0, _ = self.train_set[0]
-        input_dim = int(torch.numel(X0))   # = 784
+        input_dim = int(torch.numel(X0))
         self.model = MLP(input_dim=input_dim).to(DEVICE)
 
         self.train_loader = DataLoader(self.train_set, batch_size=32, shuffle=True)
@@ -143,38 +142,18 @@ class FLClient(fl.client.NumPyClient):
         return total_delay
 
     def fit(self, parameters, config):
-        round_id = config.get("server_round", "?")
-        base_version = int(config.get("server_version", 0))
-
-        logger.info(f"[CLIENT-{self.client_id}] ===== TRAIN ROUND {round_id} =====")
-        logger.info(
-            f"[CLIENT-{self.client_id}] base_version={base_version} "
-            f"delay={self.delay_sec}s(+{self.delay_jitter_sec}s jitter)"
-        )
+        round_id = int(config.get("server_round", 0))
 
         self.set_parameters(parameters)
 
-        t0 = time.perf_counter()
         simulated = self.simulate_delay()
-        EPOCHS = 3
-        for epoch in range(EPOCHS):
+        epochs = 3
+        for _ in range(epochs):
             train_loss, train_acc = self.train_one_epoch()
             val_loss, val_acc = self.validate()
 
-            logger.info(
-                f"[CLIENT-{self.client_id}][R{round_id}][E{epoch+1}] "
-                f"train_loss={train_loss:.4f} "
-                f"train_acc={train_acc:.4f} | "
-                f"val_loss={val_loss:.4f} "
-                f"val_acc={val_acc:.4f}"
-            )
-
-        train_time = time.perf_counter() - t0
-
-        logger.info(
-            f"[CLIENT-{self.client_id}][R{round_id}] DONE "
-            f"train_time={train_time:.3f}s simulated_delay={simulated:.3f}s"
-        )
+        if self.stop_after_round > 0 and round_id >= self.stop_after_round:
+            raise SystemExit(0)
 
         return (
             self.get_parameters(None),
@@ -185,10 +164,7 @@ class FLClient(fl.client.NumPyClient):
                 "train_acc": train_acc,
                 "val_loss": val_loss,
                 "val_acc": val_acc,
-
-                # AOFL fields for server
-                "base_version": base_version,
-                "train_time": train_time,
+                "base_version": int(config.get("server_version", 0)),
                 "simulated_delay_sec": float(simulated),
             },
         )
@@ -217,7 +193,10 @@ if __name__ == "__main__":
         f"[CLIENT-{CLIENT_ID_FOR_LOG}] Starting client | seed={seed} | server={server_address}"
     )
 
-    fl.client.start_client(
-        server_address=server_address,
-        client=FLClient(seed).to_client(),
-    )
+    try:
+        fl.client.start_client(
+            server_address=server_address,
+            client=FLClient(seed).to_client(),
+        )
+    except Exception:
+        raise SystemExit(0)

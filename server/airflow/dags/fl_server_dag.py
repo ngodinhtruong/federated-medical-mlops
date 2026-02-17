@@ -68,51 +68,53 @@ with DAG(
             '
             """
 
-    run_fl = DockerOperator(
-        task_id="run_fl_training",
+    # run_fl = DockerOperator(
+    #     task_id="run_fl_training",
 
-        image="fl-server:latest",
-        command=command,
+    #     image="fl-server:latest",
+    #     command=command,
 
-        docker_url="unix://var/run/docker.sock",
-        network_mode="project_default",
+    #     docker_url="unix://var/run/docker.sock",
+    #     network_mode="project_default",
 
-        mounts=[
-            Mount(
-                source=r"D:/DHCN/2025-2026/HK2/CongNgheMoi/project/server",
-                target="/opt/fl",
-                type="bind",
-            ),
-        ],
+    #     mounts=[
+    #         Mount(
+    #             source=r"D:/DHCN/2025-2026/HK2/CongNgheMoi/project/server",
+    #             target="/opt/fl",
+    #             type="bind",
+    #         ),
+    #     ],
 
-        environment={
-            "ROLE": os.getenv("ROLE"),
-            "DATA_SEED": os.getenv("DATA_SEED"),
+    #     environment={
+    #         "ROLE": os.getenv("ROLE"),
+    #         "DATA_SEED": os.getenv("DATA_SEED"),
 
-            # flower
-            "FL_SERVER_ADDRESS": os.getenv("FL_SERVER_ADDRESS"),
-            "FL_ROUNDS": os.getenv("FL_ROUNDS"),
-            "FL_MIN_CLIENTS": os.getenv("FL_MIN_CLIENTS"),
-            "FL_MIN_FIT_CLIENTS": os.getenv("FL_MIN_FIT_CLIENTS"),
-            "FL_MIN_EVAL_CLIENTS": os.getenv("FL_MIN_EVAL_CLIENTS"),
+    #         # flower
+    #         "FL_SERVER_ADDRESS": os.getenv("FL_SERVER_ADDRESS"),
+    #         "FL_ROUNDS": os.getenv("FL_ROUNDS"),
+    #         "FL_MIN_CLIENTS": os.getenv("FL_MIN_CLIENTS"),
+    #         "FL_MIN_FIT_CLIENTS": os.getenv("FL_MIN_FIT_CLIENTS"),
+    #         "FL_MIN_EVAL_CLIENTS": os.getenv("FL_MIN_EVAL_CLIENTS"),
 
-            # minio
-            "MINIO_ENDPOINT": os.getenv("MINIO_ENDPOINT"),
-            "MINIO_ACCESS_KEY": os.getenv("MINIO_ACCESS_KEY"),
-            "MINIO_SECRET_KEY": os.getenv("MINIO_SECRET_KEY"),
-            "MINIO_BUCKET": os.getenv("MINIO_BUCKET"),
+    #         # minio
+    #         "MINIO_ENDPOINT": os.getenv("MINIO_ENDPOINT"),
+    #         "MINIO_ACCESS_KEY": os.getenv("MINIO_ACCESS_KEY"),
+    #         "MINIO_SECRET_KEY": os.getenv("MINIO_SECRET_KEY"),
+    #         "MINIO_BUCKET": os.getenv("MINIO_BUCKET"),
 
-            # logging
-            "SERVER_LOG_LEVEL": os.getenv("SERVER_LOG_LEVEL"),
-        },
+    #         # logging
+    #         "SERVER_LOG_LEVEL": os.getenv("SERVER_LOG_LEVEL"),
+    #     },
 
-        port_bindings={"8080/tcp": 8080},
+    #     port_bindings={"8080/tcp": 8080},
 
-        auto_remove=True,
-        mount_tmp_dir=False,
-    )
+    #     auto_remove=True,
+    #     mount_tmp_dir=False,
+    # )
 
 
-    # -------- dependency --------
+    # # -------- dependency --------
 
-    getdata >> run_fl
+    # getdata >> run_fl
+    getdata 
+
