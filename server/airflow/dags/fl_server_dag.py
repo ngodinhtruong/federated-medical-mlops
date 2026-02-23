@@ -1,29 +1,122 @@
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
+from airflow.operators.python import PythonOperator
+from airflow.exceptions import AirflowSkipException
 from docker.types import Mount
 from datetime import datetime
 import os
+import io
+import json
+from minio import Minio
+
+
+def _minio_client():
+    endpoint = os.getenv("MINIO_ENDPOINT", "minio:9000")
+    access_key = os.getenv("MINIO_ACCESS_KEY", "admin")
+    secret_key = os.getenv("MINIO_SECRET_KEY", "admin12345")
+    secure = os.getenv("MINIO_SECURE", "false").lower() == "true"
+    return Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure)
+
+
+def _find_next_cycle(**context):
+    client = _minio_client()
+    bucket = os.getenv("MINIO_BUCKET", "fl-artifacts")
+    prefix = os.getenv("MINIO_PREFIX", "cycles").rstrip("/") + "/"
+
+    done_suffix = "/DONE.json"
+    processed_suffix = "/PROCESSED.json"
+
+    done_cycles = set()
+    processed_cycles = set()
+
+    for obj in client.list_objects(bucket, prefix=prefix, recursive=True):
+        name = obj.object_name
+        if name.endswith(done_suffix):
+            cycle_path = name[: -len(done_suffix)]
+            done_cycles.add(cycle_path)
+        elif name.endswith(processed_suffix):
+            cycle_path = name[: -len(processed_suffix)]
+            processed_cycles.add(cycle_path)
+
+    pending = sorted(list(done_cycles - processed_cycles))
+    if not pending:
+        raise AirflowSkipException("No new cycle found")
+
+    cycle_path = pending[0]
+    cycle_id = cycle_path.split("/")[-1].replace("cycle_", "", 1)
+
+    context["ti"].xcom_push(key="cycle_path", value=cycle_path)
+    context["ti"].xcom_push(key="cycle_id", value=cycle_id)
+    return cycle_id
+
+
+def _mark_processed(**context):
+    ti = context["ti"]
+    cycle_path = ti.xcom_pull(key="cycle_path", task_ids="detect_new_cycle")
+    cycle_id = ti.xcom_pull(key="cycle_id", task_ids="detect_new_cycle")
+
+    if not cycle_path or not cycle_id:
+        raise AirflowSkipException("Missing cycle info")
+
+    client = _minio_client()
+    bucket = os.getenv("MINIO_BUCKET", "fl-artifacts")
+
+    payload = {
+        "cycle_id": str(cycle_id),
+        "status": "processed",
+        "processed_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+    raw = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    bio = io.BytesIO(raw)
+    obj_name = f"{cycle_path}/PROCESSED.json"
+
+    client.put_object(
+        bucket_name=bucket,
+        object_name=obj_name,
+        data=bio,
+        length=len(raw),
+        content_type="application/json",
+    )
 
 
 with DAG(
-    dag_id="fl_server_dag",
-    start_date=datetime(2024,1,1),
-    schedule=None,
+    dag_id="fl_cycle_postprocess",
+    start_date=datetime(2024, 1, 1),
+    schedule="*/1 * * * *",
     catchup=False,
+    max_active_runs=1,
+    default_args={"retries": 1},
 ) as dag:
 
+    detect_new_cycle = PythonOperator(
+        task_id="detect_new_cycle",
+        python_callable=_find_next_cycle,
+    )
 
-    # -------- build dataset cluster --------
-
-    getdata = DockerOperator(
-        task_id="get_data_clusters",
-
+    run_eval = DockerOperator(
+        task_id="evaluate_and_choose",
         image="fl-server:latest",
-        command="python /opt/fl/data/get_dataset.py",
-
+        command=(
+            "sh -lc '"
+            "python /opt/fl/server_evaluate.py "
+            "--cycle_id \"{{ ti.xcom_pull(task_ids=\"detect_new_cycle\", key=\"cycle_id\") }}\" "
+            "--bucket \"${MINIO_BUCKET}\" "
+            "--prefix \"${MINIO_PREFIX}\" "
+            "'"
+        ),
         docker_url="unix://var/run/docker.sock",
         network_mode="project_default",
-
+        auto_remove=True,
+        mount_tmp_dir=False,
+        environment={
+            "MINIO_ENDPOINT": os.getenv("MINIO_ENDPOINT", "minio:9000"),
+            "MINIO_ACCESS_KEY": os.getenv("MINIO_ACCESS_KEY", "admin"),
+            "MINIO_SECRET_KEY": os.getenv("MINIO_SECRET_KEY", "admin12345"),
+            "MINIO_BUCKET": os.getenv("MINIO_BUCKET", "fl-artifacts"),
+            "MINIO_PREFIX": os.getenv("MINIO_PREFIX", "cycles"),
+            "MINIO_SECURE": os.getenv("MINIO_SECURE", "false"),
+        },
         mounts=[
             Mount(
                 source=r"D:/DHCN/2025-2026/HK2/CongNgheMoi/project/server",
@@ -31,90 +124,11 @@ with DAG(
                 type="bind",
             ),
         ],
-
-        environment={
-            "ROLE": "server",
-            "DATA_SEED": os.getenv("DATA_SEED", "1"),
-
-            "FL_SERVER_ADDRESS": os.getenv("FL_SERVER_ADDRESS"),
-            "FL_ROUNDS": os.getenv("FL_ROUNDS"),
-            "FL_MIN_CLIENTS": os.getenv("FL_MIN_CLIENTS"),
-            "FL_MIN_FIT_CLIENTS": os.getenv("FL_MIN_FIT_CLIENTS"),
-            "FL_MIN_EVAL_CLIENTS": os.getenv("FL_MIN_EVAL_CLIENTS"),
-
-            "MINIO_ENDPOINT": os.getenv("MINIO_ENDPOINT"),
-            "MINIO_ACCESS_KEY": os.getenv("MINIO_ACCESS_KEY"),
-            "MINIO_SECRET_KEY": os.getenv("MINIO_SECRET_KEY"),
-            "MINIO_BUCKET": os.getenv("MINIO_BUCKET"),
-
-            "SERVER_LOG_LEVEL": os.getenv("SERVER_LOG_LEVEL"),
-        },
-
-
-        auto_remove=True,
-        mount_tmp_dir=False,
     )
 
+    mark_processed = PythonOperator(
+        task_id="mark_processed",
+        python_callable=_mark_processed,
+    )
 
-    # -------- run FL server --------
-    command = r"""
-            sh -lc '
-            set -e
-            python -c "import flwr; print(\"[SERVER] flwr before:\", flwr.__version__)" || true
-            pip uninstall -y flwr || true
-            pip install --no-cache-dir flwr==1.7.0
-            python -c "import flwr; print(\"[SERVER] flwr after :\", flwr.__version__)"
-            python /opt/fl/server.py
-            '
-            """
-
-    # run_fl = DockerOperator(
-    #     task_id="run_fl_training",
-
-    #     image="fl-server:latest",
-    #     command=command,
-
-    #     docker_url="unix://var/run/docker.sock",
-    #     network_mode="project_default",
-
-    #     mounts=[
-    #         Mount(
-    #             source=r"D:/DHCN/2025-2026/HK2/CongNgheMoi/project/server",
-    #             target="/opt/fl",
-    #             type="bind",
-    #         ),
-    #     ],
-
-    #     environment={
-    #         "ROLE": os.getenv("ROLE"),
-    #         "DATA_SEED": os.getenv("DATA_SEED"),
-
-    #         # flower
-    #         "FL_SERVER_ADDRESS": os.getenv("FL_SERVER_ADDRESS"),
-    #         "FL_ROUNDS": os.getenv("FL_ROUNDS"),
-    #         "FL_MIN_CLIENTS": os.getenv("FL_MIN_CLIENTS"),
-    #         "FL_MIN_FIT_CLIENTS": os.getenv("FL_MIN_FIT_CLIENTS"),
-    #         "FL_MIN_EVAL_CLIENTS": os.getenv("FL_MIN_EVAL_CLIENTS"),
-
-    #         # minio
-    #         "MINIO_ENDPOINT": os.getenv("MINIO_ENDPOINT"),
-    #         "MINIO_ACCESS_KEY": os.getenv("MINIO_ACCESS_KEY"),
-    #         "MINIO_SECRET_KEY": os.getenv("MINIO_SECRET_KEY"),
-    #         "MINIO_BUCKET": os.getenv("MINIO_BUCKET"),
-
-    #         # logging
-    #         "SERVER_LOG_LEVEL": os.getenv("SERVER_LOG_LEVEL"),
-    #     },
-
-    #     port_bindings={"8080/tcp": 8080},
-
-    #     auto_remove=True,
-    #     mount_tmp_dir=False,
-    # )
-
-
-    # # -------- dependency --------
-
-    # getdata >> run_fl
-    getdata 
-
+    detect_new_cycle >> run_eval >> mark_processed

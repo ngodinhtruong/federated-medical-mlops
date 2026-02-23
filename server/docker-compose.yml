@@ -9,11 +9,6 @@ services:
     command: ["/bin/sh", "/opt/fl/entrypoint_fl.sh"]
 
     environment:
-      FL_SERVER_ADDRESS: "0.0.0.0:8080"
-      FL_ROUNDS: 5
-      FL_MIN_CLIENTS: 2
-      FL_MIN_FIT_CLIENTS: 2
-      FL_MIN_EVAL_CLIENTS: 2
       SERVER_LOG_LEVEL: INFO
     networks:
       - project_default
@@ -33,6 +28,8 @@ services:
       POSTGRES_DB: airflow
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
+    networks:
+      - project_default
 
   airflow:
     image: apache/airflow:2.8.0
@@ -48,19 +45,25 @@ services:
       AF_USER: admin
       AF_PASS: admin
 
+
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/opt/fl
-      - ./airflow-entrypoint.sh:/airflow-entrypoint.sh
+      - ./airflow-entrypoint.sh:/airflow-entrypoint.sh:ro
 
     ports:
       - "8081:8080"
-
+    
     entrypoint: ["/bin/bash", "/airflow-entrypoint.sh"]
+    # networks:
+    #   - project_default
 
   airflow-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     image: apache/airflow:2.8.0
     container_name: airflow-init
     depends_on:
@@ -75,13 +78,19 @@ services:
       _AIRFLOW_WWW_USER_USERNAME: admin
       _AIRFLOW_WWW_USER_PASSWORD: admin
 
+      PIP_ADDITIONAL_REQUIREMENTS: "minio==7.2.5"
+
     user: "0:0"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
     command: db init
-
+    networks:
+      - project_default
   airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     image: apache/airflow:2.8.0
     container_name: airflow-web
     depends_on:
@@ -90,6 +99,8 @@ services:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+
+      PIP_ADDITIONAL_REQUIREMENTS: "minio==7.2.5"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
@@ -98,8 +109,12 @@ services:
     ports:
       - "8081:8080"
     command: webserver
-
+    networks:
+      - project_default
   airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     image: apache/airflow:2.8.0
     container_name: airflow-scheduler
     depends_on:
@@ -107,13 +122,16 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+
+      PIP_ADDITIONAL_REQUIREMENTS: "minio==7.2.5"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/opt/fl
     command: scheduler
-
+    networks:
+      - project_default
 volumes:
   postgres-db-volume:
 networks:

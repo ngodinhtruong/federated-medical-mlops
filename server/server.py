@@ -1,4 +1,3 @@
-# server_aofl_async.py
 import os
 import io
 import json
@@ -62,10 +61,14 @@ if not logger.handlers:
 logger.info(f"Logging initialized → {LOG_FILE}")
 
 
-MINIO_ENDPOINT = "minio:9000"
-MINIO_USER = "admin"
-MINIO_PASS = "admin12345"
-BUCKET = "fl-artifacts"
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
+MINIO_USER = os.getenv("MINIO_ACCESS_KEY", "admin")
+MINIO_PASS = os.getenv("MINIO_SECRET_KEY", "admin12345")
+BUCKET = os.getenv("MINIO_BUCKET", "fl-artifacts")
+
+MINIO_PREFIX = os.getenv("MINIO_PREFIX", "cycles")
+SERVER_ID = os.getenv("SERVER_ID", "server-1")
+CYCLE_ID = os.getenv("CYCLE_ID", run_ts)
 
 minio_client = Minio(
     MINIO_ENDPOINT,
@@ -73,6 +76,36 @@ minio_client = Minio(
     secret_key=MINIO_PASS,
     secure=False,
 )
+
+
+def minio_put_json(bucket: str, object_name: str, payload: dict):
+    raw = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    bio = io.BytesIO(raw)
+    minio_client.put_object(
+        bucket_name=bucket,
+        object_name=object_name,
+        data=bio,
+        length=len(raw),
+        content_type="application/json",
+    )
+
+
+def minio_put_bytes(bucket: str, object_name: str, raw: bytes, content_type: str):
+    bio = io.BytesIO(raw)
+    minio_client.put_object(
+        bucket_name=bucket,
+        object_name=object_name,
+        data=bio,
+        length=len(raw),
+        content_type=content_type,
+    )
+
+
+def fl_params_to_npz_bytes(params) -> bytes:
+    nds = parameters_to_ndarrays(params)
+    buf = io.BytesIO()
+    np.savez_compressed(buf, *nds)
+    return buf.getvalue()
 
 
 def get_eligible_clients():
@@ -155,6 +188,29 @@ def server_val_loss(params, val_X, val_y):
     return float(loss.item())
 
 
+def server_eval(params, val_X, val_y):
+    model = build_model_from_parameters(params, val_X.shape[1:])
+
+    with torch.no_grad():
+        X = val_X.view(val_X.size(0), -1)
+        logits = model(X)
+        preds = (logits > 0.5).int().cpu().numpy()
+
+    y_true = val_y.cpu().numpy()
+    y_pred = preds
+
+    acc, prec, rec, f1 = binary_metrics(y_true, y_pred)
+    loss = server_val_loss(params, val_X, val_y)
+
+    return {
+        "loss": float(loss),
+        "accuracy": float(acc),
+        "precision": float(prec),
+        "recall": float(rec),
+        "f1": float(f1),
+    }
+
+
 class AOFLAsyncServer:
     def __init__(
         self,
@@ -182,6 +238,7 @@ class AOFLAsyncServer:
 
         self.best_loss = float("inf")
         self.best_parameters = None
+        self.best_round = None
 
         self.cid_to_client_id = {}
 
@@ -191,6 +248,9 @@ class AOFLAsyncServer:
 
         self.idle_timeout_sec = float(os.getenv("AOFL_IDLE_TIMEOUT_SEC", "30.0"))
 
+        self.cycle_prefix = f"{MINIO_PREFIX}/cycle_{CYCLE_ID}"
+        self.round_metrics = []
+
         logger.info(f"Online Fedarated Learning started: (alpha0={self.alpha0})")
         logger.info(
             f"[AOFL-ASYNC] concurrency={self.concurrency} "
@@ -199,6 +259,7 @@ class AOFLAsyncServer:
         logger.info(
             f"[AOFL-ASYNC] elig_ttl={self.eligibility_ttl_sec}s idle_timeout={self.idle_timeout_sec}s"
         )
+        logger.info(f"[MINIO] bucket={BUCKET} prefix={self.cycle_prefix}")
 
     def _refresh_eligible(self):
         now = time.time()
@@ -236,6 +297,7 @@ class AOFLAsyncServer:
         init_loss = server_val_loss(self.global_parameters, self.val_X, self.val_y)
         self.best_loss = init_loss
         self.best_parameters = self.global_parameters
+        self.best_round = 0
         logger.info(f"[SERVER] Initial global_loss={init_loss:.6f}")
 
     def _dispatch_fit(self, cp, round_id, params_snapshot, base_version_snapshot):
@@ -249,12 +311,51 @@ class AOFLAsyncServer:
         fit_res = call_fit(cp, fit_ins)
         return cp, fit_res
 
+    def _upload_cycle_artifacts(
+        self,
+        *,
+        meta: dict,
+        summary: dict,
+        best_params,
+        last_params,
+        round_metrics: list,
+    ):
+        minio_put_json(BUCKET, f"{self.cycle_prefix}/meta.json", meta)
+        minio_put_json(BUCKET, f"{self.cycle_prefix}/summary.json", summary)
+        minio_put_json(BUCKET, f"{self.cycle_prefix}/round_metrics.json", {"rounds": round_metrics})
+
+        best_raw = fl_params_to_npz_bytes(best_params)
+        last_raw = fl_params_to_npz_bytes(last_params)
+
+        minio_put_bytes(BUCKET, f"{self.cycle_prefix}/model_best.npz", best_raw, "application/octet-stream")
+        minio_put_bytes(BUCKET, f"{self.cycle_prefix}/model_last.npz", last_raw, "application/octet-stream")
+
+        try:
+            with open(LOG_FILE, "rb") as f:
+                log_raw = f.read()
+            minio_put_bytes(BUCKET, f"{self.cycle_prefix}/server.log", log_raw, "text/plain")
+        except Exception as e:
+            logger.info(f"[MINIO] Skip uploading log file: {e}")
+
+        done = {
+            "cycle_id": str(CYCLE_ID),
+            "server_id": str(SERVER_ID),
+            "status": "completed",
+            "ts": datetime.now(VN_TZ).isoformat(),
+        }
+        minio_put_json(BUCKET, f"{self.cycle_prefix}/DONE.json", done)
+
     def run_one_cycle(self):
+        cycle_started_at = datetime.now(VN_TZ).isoformat()
+
         if self.global_parameters is None:
             self._get_initial_parameters()
 
         self.best_loss = float("inf")
         self.best_parameters = self.global_parameters
+        self.best_round = None
+
+        self.round_metrics = []
 
         self._eligible_cache = set()
         self._eligible_cache_ts = 0.0
@@ -380,22 +481,6 @@ class AOFLAsyncServer:
                     f"base_version={base_version} server_version_before={cur_ver_before}"
                 )
 
-                logger.info(
-                    f"[ROUND {rid}][CLIENT {client_id}] "
-                    f"train_loss={m.get('train_loss'):.4f}, "
-                    f"train_acc={m.get('train_acc'):.4f} | "
-                    f"val_loss={m.get('val_loss'):.4f}, "
-                    f"val_acc={m.get('val_acc'):.4f}"
-                )
-
-                logger.info(
-                    f"[ROUND {rid}][GLOBAL] "
-                    f"train_loss={m.get('train_loss'):.4f}, "
-                    f"train_acc={m.get('train_acc'):.4f} | "
-                    f"val_loss={m.get('val_loss'):.4f}, "
-                    f"val_acc={m.get('val_acc'):.4f}"
-                )
-
                 eligible_now = self._refresh_eligible()
                 if client_id not in eligible_now:
                     logger.info(f"[AOFL][ROUND {rid}] SKIP update because client {client_id} is NOT eligible now")
@@ -416,23 +501,42 @@ class AOFLAsyncServer:
                 updates_applied += 1
                 last_progress_ts = time.time()
 
-                tt = float(m.get("train_time", 0.0))
-                logger.info(
-                    f"[AOFL][ROUND {rid}][CLIENT {client_id}] "
-                    f"train_time={tt:.3f}s base_version={base_version} "
-                    f"-> tau={tau}, alpha={alpha:.4f}, server_version={self.version}"
-                )
-
                 self.global_parameters = ndarrays_to_parameters(global_nd)
                 self.latest_parameters = self.global_parameters
 
-                loss = server_val_loss(self.latest_parameters, self.val_X, self.val_y)
-                logger.info(f"Round {rid} | global_loss={loss:.6f}")
+                global_loss = server_val_loss(self.latest_parameters, self.val_X, self.val_y)
 
-                if loss < self.best_loss:
-                    self.best_loss = loss
+                record = {
+                    "ts": datetime.now(VN_TZ).isoformat(),
+                    "cycle_id": str(CYCLE_ID),
+                    "round_id": int(rid),
+                    "client_id": str(client_id),
+                    "flower_cid": str(flower_cid),
+                    "base_version": int(base_version),
+                    "tau": int(tau),
+                    "alpha": float(alpha),
+                    "server_version_after": int(self.version),
+                    "train_time": float(m.get("train_time", 0.0)),
+                    "client_train_loss": float(m.get("train_loss", 0.0)) if m.get("train_loss") is not None else None,
+                    "client_train_acc": float(m.get("train_acc", 0.0)) if m.get("train_acc") is not None else None,
+                    "client_val_loss": float(m.get("val_loss", 0.0)) if m.get("val_loss") is not None else None,
+                    "client_val_acc": float(m.get("val_acc", 0.0)) if m.get("val_acc") is not None else None,
+                    "server_global_loss": float(global_loss),
+                }
+                self.round_metrics.append(record)
+
+                logger.info(
+                    f"[AOFL][ROUND {rid}][CLIENT {client_id}] "
+                    f"train_time={record['train_time']:.3f}s base_version={base_version} "
+                    f"-> tau={tau}, alpha={alpha:.4f}, server_version={self.version}"
+                )
+                logger.info(f"Round {rid} | global_loss={global_loss:.6f}")
+
+                if global_loss < self.best_loss:
+                    self.best_loss = global_loss
                     self.best_parameters = self.latest_parameters
-                    logger.info(f"NEW BEST MODEL at round {rid} (loss={loss:.6f})")
+                    self.best_round = int(rid)
+                    logger.info(f"NEW BEST MODEL at round {rid} (loss={global_loss:.6f})")
 
                 while len(inflight) < self.concurrency:
                     if not submit_one():
@@ -442,30 +546,70 @@ class AOFLAsyncServer:
 
         executor.shutdown(wait=True)
 
+        last_parameters = self.latest_parameters
+        best_parameters = self.best_parameters if self.best_parameters is not None else last_parameters
+
+        best_eval = server_eval(best_parameters, self.val_X, self.val_y)
+        last_eval = server_eval(last_parameters, self.val_X, self.val_y)
+
         logger.info("===== FINAL VALIDATION (BEST MODEL) =====")
+        logger.info(f"Loss     : {best_eval['loss']:.6f}")
+        logger.info(f"Accuracy : {best_eval['accuracy']:.6f}")
+        logger.info(f"Precision: {best_eval['precision']:.6f}")
+        logger.info(f"Recall   : {best_eval['recall']:.6f}")
+        logger.info(f"F1-score : {best_eval['f1']:.6f}")
 
-        model = build_model_from_parameters(self.best_parameters, self.val_X.shape[1:])
-
-        with torch.no_grad():
-            X = self.val_X.view(self.val_X.size(0), -1)
-            logits = model(X)
-            preds = (logits > 0.5).int().cpu().numpy()
-
-        y_true = self.val_y.cpu().numpy()
-        y_pred = preds
-
-        acc, prec, rec, f1 = binary_metrics(y_true, y_pred)
-
-        logger.info("FINAL METRICS")
-        logger.info(f"Accuracy : {acc:.6f}")
-        logger.info(f"Precision: {prec:.6f}")
-        logger.info(f"Recall   : {rec:.6f}")
-        logger.info(f"F1-score : {f1:.6f}")
+        logger.info("===== FINAL VALIDATION (LAST MODEL) =====")
+        logger.info(f"Loss     : {last_eval['loss']:.6f}")
+        logger.info(f"Accuracy : {last_eval['accuracy']:.6f}")
+        logger.info(f"Precision: {last_eval['precision']:.6f}")
+        logger.info(f"Recall   : {last_eval['recall']:.6f}")
+        logger.info(f"F1-score : {last_eval['f1']:.6f}")
 
         logger.info(
             f"[AOFL-ASYNC] Cycle finished: rounds_dispatched={round_id}/{self.max_rounds_per_cycle} "
             f"updates_applied={updates_applied}"
         )
+
+        meta = {
+            "cycle_id": str(CYCLE_ID),
+            "server_id": str(SERVER_ID),
+            "run_ts": str(run_ts),
+            "cycle_started_at": cycle_started_at,
+            "cycle_finished_at": datetime.now(VN_TZ).isoformat(),
+            "alpha0": float(self.alpha0),
+            "max_updates": int(self.max_updates),
+            "concurrency": int(self.concurrency),
+            "max_rounds_per_cycle": int(self.max_rounds_per_cycle),
+            "idle_timeout_sec": float(self.idle_timeout_sec),
+            "eligibility_ttl_sec": float(self.eligibility_ttl_sec),
+            "server_address": str(os.getenv("FL_SERVER_ADDRESS", "0.0.0.0:8080")),
+        }
+
+        summary = {
+            "cycle_id": str(CYCLE_ID),
+            "server_id": str(SERVER_ID),
+            "rounds_dispatched": int(round_id),
+            "updates_applied": int(updates_applied),
+            "server_version_end": int(self.version),
+            "best_round": int(self.best_round) if self.best_round is not None else None,
+            "best": best_eval,
+            "last": last_eval,
+            "best_loss": float(best_eval["loss"]),
+            "last_loss": float(last_eval["loss"]),
+        }
+
+        try:
+            self._upload_cycle_artifacts(
+                meta=meta,
+                summary=summary,
+                best_params=best_parameters,
+                last_params=last_parameters,
+                round_metrics=self.round_metrics,
+            )
+            logger.info(f"[MINIO] Uploaded artifacts to {BUCKET}/{self.cycle_prefix}")
+        except Exception as e:
+            logger.exception(f"[MINIO] Upload failed: {e}")
 
 
 def stage_train(aofl):

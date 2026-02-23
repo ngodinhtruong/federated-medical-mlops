@@ -12,7 +12,7 @@ echo "Postgres ready"
 echo "Migrating DB"
 airflow db migrate || airflow db init
 
-echo "👤 Creating admin user (if not exists)"
+echo "Creating admin user (if not exists)"
 airflow users create \
   --username ${AF_USER:-admin} \
   --password ${AF_PASS:-admin} \
