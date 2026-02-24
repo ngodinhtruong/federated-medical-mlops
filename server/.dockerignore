@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Virtual env
+env/
+.venv/
+
+# Airflow
+airflow/
+airflow/logs/
+
+# Local logs
+logs/
+
+# Model / data không cần trong image
+clusters/
+data/
+model/
+
+# Git
+.git
+.gitignore
+
+# Docker compose
+docker-compose.yml

@@ -1,7 +1,25 @@
-version: "3.8"
+# version: "3.8"
 
 services:
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: admin12345
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - project_default
   fl-server:
+    build:
+      context: .
+      dockerfile: dockerfile.flower
     image: fl-server:latest
     container_name: fl-server
     restart: unless-stopped
@@ -18,7 +36,7 @@ services:
     ports:
       - "8080:8080"
 
-
+  
   postgres:
     image: postgres:13
     container_name: airflow-postgres
@@ -30,40 +48,36 @@ services:
       - postgres-db-volume:/var/lib/postgresql/data
     networks:
       - project_default
-
-  airflow:
-    image: apache/airflow:2.8.0
-    container_name: airflow
+  
+  mlflow:
+    build:
+      context: .
+      dockerfile: dockerfile.mlflow
+    container_name: mlflow
+    restart: unless-stopped
     depends_on:
       - postgres
-
+      - minio
     environment:
-      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-
-      AF_USER: admin
-      AF_PASS: admin
-
-
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/logs:/opt/airflow/logs
-      - /var/run/docker.sock:/var/run/docker.sock
-      - .:/opt/fl
-      - ./airflow-entrypoint.sh:/airflow-entrypoint.sh:ro
-
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: admin12345
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://airflow:airflow@postgres/mlflow
+      --default-artifact-root s3://fl-artifacts/mlflow
+      --host 0.0.0.0
+      --port 5000
     ports:
-      - "8081:8080"
-    
-    entrypoint: ["/bin/bash", "/airflow-entrypoint.sh"]
-    # networks:
-    #   - project_default
+      - "5000:5000"
+    networks:
+      - project_default
+
 
   airflow-init:
     build:
       context: .
-      dockerfile: Dockerfile.airflow
+      dockerfile: dockerfile.airflow
     image: apache/airflow:2.8.0
     container_name: airflow-init
     depends_on:
@@ -90,7 +104,7 @@ services:
   airflow-webserver:
     build:
       context: .
-      dockerfile: Dockerfile.airflow
+      dockerfile: dockerfile.airflow
     image: apache/airflow:2.8.0
     container_name: airflow-web
     depends_on:
@@ -99,8 +113,19 @@ services:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: /opt/fl
 
-      PIP_ADDITIONAL_REQUIREMENTS: "minio==7.2.5"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT: fl_experiment
+      MLFLOW_MODEL_NAME: fl_model
+      PIP_ADDITIONAL_REQUIREMENTS: "minio==7.2.5 mlflow==2.9.2"
+
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: admin12345
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_S3_FORCE_PATH_STYLE: "true"
+    
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
@@ -108,13 +133,14 @@ services:
       - .:/opt/fl
     ports:
       - "8081:8080"
+
     command: webserver
     networks:
       - project_default
   airflow-scheduler:
     build:
       context: .
-      dockerfile: Dockerfile.airflow
+      dockerfile: dockerfile.airflow
     image: apache/airflow:2.8.0
     container_name: airflow-scheduler
     depends_on:
@@ -122,8 +148,17 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      PYTHONPATH: /opt/fl
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT: fl_experiment
+      MLFLOW_MODEL_NAME: fl_model
+      PIP_ADDITIONAL_REQUIREMENTS: "minio==7.2.5 mlflow==2.9.2"
 
-      PIP_ADDITIONAL_REQUIREMENTS: "minio==7.2.5"
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: admin12345
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_S3_FORCE_PATH_STYLE: "true"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
@@ -132,8 +167,13 @@ services:
     command: scheduler
     networks:
       - project_default
+
+
+
 volumes:
   postgres-db-volume:
+  mlflow-artifacts:
+  minio_data:
 networks:
   project_default:
     external: true

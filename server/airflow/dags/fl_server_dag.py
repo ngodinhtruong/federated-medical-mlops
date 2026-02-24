@@ -1,7 +1,12 @@
+import sys
+sys.path.append("/opt/fl/server")
+
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.operators.python import PythonOperator
 from airflow.exceptions import AirflowSkipException
+
+from server_mlflow import log_cycle_to_mlflow
 from docker.types import Mount
 from datetime import datetime
 import os
@@ -49,7 +54,15 @@ def _find_next_cycle(**context):
     context["ti"].xcom_push(key="cycle_id", value=cycle_id)
     return cycle_id
 
+def _log_mlflow_task(**context):
+    ti = context["ti"]
+    cycle_path = ti.xcom_pull(key="cycle_path", task_ids="detect_new_cycle")
+    cycle_id = ti.xcom_pull(key="cycle_id", task_ids="detect_new_cycle")
 
+    if not cycle_path or not cycle_id:
+        raise AirflowSkipException("Missing cycle info")
+
+    log_cycle_to_mlflow(cycle_path, cycle_id)
 def _mark_processed(**context):
     ti = context["ti"]
     cycle_path = ti.xcom_pull(key="cycle_path", task_ids="detect_new_cycle")
@@ -125,10 +138,13 @@ with DAG(
             ),
         ],
     )
-
+    log_to_mlflow = PythonOperator(
+        task_id="log_to_mlflow",
+        python_callable=_log_mlflow_task,
+    )
     mark_processed = PythonOperator(
         task_id="mark_processed",
         python_callable=_mark_processed,
     )
 
-    detect_new_cycle >> run_eval >> mark_processed
+    detect_new_cycle >> run_eval >> log_to_mlflow >> mark_processed
