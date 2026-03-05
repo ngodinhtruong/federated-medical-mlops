@@ -93,7 +93,8 @@ services:
       _AIRFLOW_WWW_USER_PASSWORD: admin
 
       PIP_ADDITIONAL_REQUIREMENTS: "minio==7.2.5"
-
+    env_file:
+      - .env
     user: "0:0"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
@@ -102,9 +103,6 @@ services:
     networks:
       - project_default
   airflow-webserver:
-    build:
-      context: .
-      dockerfile: dockerfile.airflow
     image: apache/airflow:2.8.0
     container_name: airflow-web
     depends_on:
@@ -125,7 +123,8 @@ services:
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       AWS_DEFAULT_REGION: us-east-1
       AWS_S3_FORCE_PATH_STYLE: "true"
-    
+    env_file:
+      - .env
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
@@ -138,9 +137,6 @@ services:
     networks:
       - project_default
   airflow-scheduler:
-    build:
-      context: .
-      dockerfile: dockerfile.airflow
     image: apache/airflow:2.8.0
     container_name: airflow-scheduler
     depends_on:
@@ -159,6 +155,8 @@ services:
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       AWS_DEFAULT_REGION: us-east-1
       AWS_S3_FORCE_PATH_STYLE: "true"
+    env_file:
+      - .env
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs

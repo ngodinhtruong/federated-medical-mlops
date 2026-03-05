@@ -1,5 +1,6 @@
 # client.py
 import os
+import sys
 import time
 import logging
 from datetime import datetime
@@ -187,7 +188,8 @@ class FLClient(fl.client.NumPyClient):
 
 if __name__ == "__main__":
     seed = int(os.environ.get("CLIENT_SEED", 0))
-    server_address = os.environ.get("FL_SERVER_ADDRESS", "host.docker.internal:8080")
+    # server_address = os.environ.get("FL_SERVER_ADDRESS", "host.docker.internal:8080")
+    server_address = "172.17.0.1:8080"
 
     logger.info(
         f"[CLIENT-{CLIENT_ID_FOR_LOG}] Starting client | seed={seed} | server={server_address}"
@@ -198,5 +200,6 @@ if __name__ == "__main__":
             server_address=server_address,
             client=FLClient(seed).to_client(),
         )
-    except Exception:
-        raise SystemExit(0)
+    except Exception as e:
+        logger.warning(f"Client finished: {e}")
+        sys.exit(0)

@@ -8,12 +8,13 @@ from airflow.exceptions import AirflowSkipException
 
 from server_mlflow import log_cycle_to_mlflow
 from docker.types import Mount
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import io
 import json
 from minio import Minio
 
+source_mount = os.getenv("FL_SOURCE_MOUNT", "/opt/fl")
 
 def _minio_client():
     endpoint = os.getenv("MINIO_ENDPOINT", "minio:9000")
@@ -99,7 +100,7 @@ with DAG(
     schedule="*/1 * * * *",
     catchup=False,
     max_active_runs=1,
-    default_args={"retries": 1},
+    default_args={"retries": 1, "retry_delay": timedelta(seconds=30)},
 ) as dag:
 
     detect_new_cycle = PythonOperator(
@@ -132,7 +133,7 @@ with DAG(
         },
         mounts=[
             Mount(
-                source=r"D:/DHCN/2025-2026/HK2/CongNgheMoi/project/server",
+                source=source_mount,
                 target="/opt/fl",
                 type="bind",
             ),
