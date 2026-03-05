@@ -19,7 +19,11 @@ logs/
 
 *.env
 **/env/
+<<<<<<< HEAD
 .env
+=======
+# .env
+>>>>>>> 551d81f3aff808b713df2ece95a15cbc3c198f08
 
 *.pt
 *.pth
