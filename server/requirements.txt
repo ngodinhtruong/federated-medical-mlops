@@ -17,4 +17,4 @@ python-dateutil==2.8.2
 
 typing-extensions>=4.8
 
-zoneinfo==2024.1.1
+# zoneinfo==2024.1.1

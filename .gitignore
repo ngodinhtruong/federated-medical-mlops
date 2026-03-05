@@ -19,7 +19,7 @@ logs/
 
 *.env
 **/env/
-
+# .env
 
 *.pt
 *.pth
