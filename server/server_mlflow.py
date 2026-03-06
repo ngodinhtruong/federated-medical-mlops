@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 import mlflow
 from minio import Minio
 from airflow.exceptions import AirflowSkipException
-
+from mlflow.tracking import MlflowClient
 
 def _minio_client() -> Minio:
     endpoint = os.getenv("MINIO_ENDPOINT", "minio:9000")
@@ -76,7 +76,40 @@ def _log_metrics(prefix: str, metrics: Dict[str, Any]):
         if isinstance(v, (int, float)):
             mlflow.log_metric(f"{prefix}{k}", float(v))
 
+def _get_registry_metrics(client: MlflowClient, model_name: str) -> Optional[Dict[str, float]]:
+    try:
+        versions = client.get_latest_versions(model_name, stages=["Production"])
+        if not versions:
+            return None
 
+        version = versions[0]
+        run = client.get_run(version.run_id)
+
+        return {
+            "f1": run.data.metrics.get("chosen_f1"),
+            "loss": run.data.metrics.get("chosen_loss"),
+        }
+
+    except Exception:
+        return None
+def _is_new_model_better(new_metrics: Dict[str, float], old_metrics: Optional[Dict[str, float]]) -> bool:
+
+    if old_metrics is None:
+        return True
+
+    new_f1 = float(new_metrics.get("f1", 0))
+    old_f1 = float(old_metrics.get("f1", 0))
+
+    new_loss = float(new_metrics.get("loss", 1e9))
+    old_loss = float(old_metrics.get("loss", 1e9))
+
+    if new_f1 > old_f1:
+        return True
+
+    if new_f1 < old_f1:
+        return False
+
+    return new_loss < old_loss
 def log_cycle_to_mlflow(cycle_path: str, cycle_id: str):
     bucket = os.getenv("MINIO_BUCKET", "fl-artifacts")
     client = _minio_client()
@@ -171,10 +204,23 @@ def log_cycle_to_mlflow(cycle_path: str, cycle_id: str):
             _log_json_artifact(_get_json(client, bucket, eval_last_obj), "minio/EVAL", "eval_last.json")
 
         model_name = os.getenv("MLFLOW_MODEL_NAME", "fl_model")
-        if chosen_model_object:
+        mlflow_client = MlflowClient()
+
+        registry_metrics = _get_registry_metrics(mlflow_client, model_name)
+
+        should_register = _is_new_model_better(
+            chosen_metrics,
+            registry_metrics
+        )
+
+        if should_register:
+
             raw = _get_bytes(client, bucket, str(chosen_model_object))
+
             with tempfile.TemporaryDirectory() as td:
+
                 model_file = os.path.join(td, os.path.basename(str(chosen_model_object)))
+
                 with open(model_file, "wb") as f:
                     f.write(raw)
 
@@ -182,6 +228,12 @@ def log_cycle_to_mlflow(cycle_path: str, cycle_id: str):
 
                 run_id = mlflow.active_run().info.run_id
                 model_uri = f"runs:/{run_id}/model"
+
                 mlflow.register_model(model_uri, model_name)
+
+                mlflow.set_tag("model_registered", "true")
+
         else:
+
             mlflow.set_tag("model_registered", "false")
+            mlflow.set_tag("reason", "registry_model_better")

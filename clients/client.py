@@ -12,7 +12,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from model.MLP import MLP
-from data.load_data import load_data_split
+from data.load_stream_data import load_data_split
 
 DEVICE = "cpu"
 
@@ -55,13 +55,13 @@ logger.info(f"Logging initialized → {LOG_FILE}")
 
 class FLClient(fl.client.NumPyClient):
     def __init__(self, seed):
-        self.client_id = os.getenv("CLIENT_ID", "unknown")
+        self.client_id = os.getenv("CLIENT_ID", "A")
         self.stop_after_round = int(os.getenv("CLIENT_STOP_AFTER_ROUND", "0"))
 
         self.delay_sec = 3
         self.delay_jitter_sec = 3
 
-        self.train_set, self.val_set = load_data_split(seed=seed)
+        self.train_set, self.val_set = load_data_split(client_id=self.client_id, seed=seed)
 
         X0, _ = self.train_set[0]
         input_dim = int(torch.numel(X0))
