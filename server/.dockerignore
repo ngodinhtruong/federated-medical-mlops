@@ -1,29 +1,43 @@
-# Python
-__pycache__/
+**pycache**/
 *.pyc
 *.pyo
 *.pyd
+
+
+logs/
 *.log
 
-# Virtual env
-env/
-.venv/
 
-# Airflow
-airflow/
-airflow/logs/
-
-# Local logs
-logs/
-
-# Model / data không cần trong image
-clusters/
 data/
+clusters/
 model/
 
-# Git
+
+env/
+.venv/
+venv/
+
+
+airflow/logs/
+airflow/**pycache**/
+
+
+.env
+
+
+.vscode/
+.idea/
+.DS_Store
+
+
 .git
 .gitignore
 
-# Docker compose
+
+.ipynb_checkpoints/
+
+
+*.sqlite
+*.db
+
 docker-compose.yml

@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+python-multipart
+pillow
+torch==2.1.0+cpu
+numpy==1.26.4
+minio==7.2.5
