@@ -29,7 +29,7 @@ logs/
 
 data/raw/
 data/processed/
-
+test_images_medmnist/
 
 minio/
 

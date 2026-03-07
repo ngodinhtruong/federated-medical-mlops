@@ -1,0 +1,14 @@
+services:
+  fast-api-server:
+    build:
+      context: .
+      dockerfile: dockerfile.fastapi
+    image: fast-api-server:latest
+    container_name: fast-api-server
+    ports:
+      - "8000:8000"
+    networks:
+      - project-default
+networks:
+  project-default:
+    driver: bridge
