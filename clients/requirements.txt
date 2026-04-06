@@ -24,3 +24,7 @@ python-dateutil==2.8.2
 
 # ===== Logging / typing safety =====
 typing-extensions>=4.8
+
+# ===== Data Quality (Evidently) =====
+evidently==0.4.16
+pandas>=2.0.0

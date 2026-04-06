@@ -12,6 +12,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from model.MLP import MLP
+from model.SimpleCNN import SimpleCNN
+from model.LogisticRegression import LogisticRegression
 from data.load_stream_data import load_data_split
 
 DEVICE = "cpu"
@@ -23,9 +25,10 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 run_ts = datetime.now(VN_TZ).strftime("%Y-%m-%d_%H-%M-%S")
 CLIENT_ID_FOR_LOG = os.getenv("CLIENT_ID", "unknown")
-LOG_FILE = os.path.join(LOG_DIR, f"fl_client_{CLIENT_ID_FOR_LOG}_{run_ts}.log")
+MODEL_NAME = os.getenv("MODEL_NAME", "MLP")
+LOG_FILE = os.path.join(LOG_DIR, f"fl_client_{CLIENT_ID_FOR_LOG}_{MODEL_NAME}_{run_ts}.log")
 
-logger = logging.getLogger(f"fl_client_{CLIENT_ID_FOR_LOG}")
+logger = logging.getLogger(f"fl_client_{CLIENT_ID_FOR_LOG}_{MODEL_NAME}")
 logger.setLevel(logging.INFO)
 
 
@@ -65,7 +68,15 @@ class FLClient(fl.client.NumPyClient):
 
         X0, _ = self.train_set[0]
         input_dim = int(torch.numel(X0))
-        self.model = MLP(input_dim=input_dim).to(DEVICE)
+        self.model_name = os.getenv("MODEL_NAME", "MLP")
+        
+        if self.model_name == "CNN":
+            channels = 1 if len(X0.shape) == 2 else X0.shape[0]
+            self.model = SimpleCNN(input_channels=channels).to(DEVICE)
+        elif self.model_name == "LogisticRegression":
+            self.model = LogisticRegression(input_dim=input_dim).to(DEVICE)
+        else:
+            self.model = MLP(input_dim=input_dim).to(DEVICE)
 
         self.train_loader = DataLoader(self.train_set, batch_size=32, shuffle=True)
         self.val_loader = DataLoader(self.val_set, batch_size=64, shuffle=False)
@@ -74,7 +85,7 @@ class FLClient(fl.client.NumPyClient):
         self.opt = torch.optim.Adam(self.model.parameters(), lr=0.01)
 
         logger.info(
-            f"[CLIENT-{self.client_id}] Init done |"
+            f"[CLIENT-{self.client_id} | {self.model_name}] Init done |"
             f"train={len(self.train_set)} val={len(self.val_set)} | "
             f"delay={self.delay_sec}s jitter={self.delay_jitter_sec}s"
         )
@@ -96,8 +107,10 @@ class FLClient(fl.client.NumPyClient):
         total_loss, correct, total = 0.0, 0, 0
 
         for Xb, yb in self.train_loader:
-            Xb = Xb.view(Xb.size(0), -1)
+            if self.model_name in ["MLP", "LogisticRegression"]:
+                Xb = Xb.view(Xb.size(0), -1)
             pred = self.model(Xb)
+            yb = yb.float()
             loss = self.loss_fn(pred, yb)
 
             self.opt.zero_grad()
@@ -116,8 +129,10 @@ class FLClient(fl.client.NumPyClient):
         total_loss, correct, total = 0.0, 0, 0
 
         for Xb, yb in self.val_loader:
-            Xb = Xb.view(Xb.size(0), -1)
+            if self.model_name in ["MLP", "LogisticRegression"]:
+                Xb = Xb.view(Xb.size(0), -1)
             pred = self.model(Xb)
+            yb = yb.float()
             loss = self.loss_fn(pred, yb)
 
             total_loss += loss.item() * len(yb)
@@ -161,6 +176,7 @@ class FLClient(fl.client.NumPyClient):
             len(self.train_set),
             {
                 "client_id": self.client_id,
+                "model_name": self.model_name,
                 "train_loss": train_loss,
                 "train_acc": train_acc,
                 "val_loss": val_loss,
@@ -188,11 +204,11 @@ class FLClient(fl.client.NumPyClient):
 
 if __name__ == "__main__":
     seed = int(os.environ.get("CLIENT_SEED", 0))
-    # server_address = os.environ.get("FL_SERVER_ADDRESS", "host.docker.internal:8080")
-    server_address = "172.17.0.1:8080"
+    server_address = os.environ.get("FL_SERVER_ADDRESS", "host.docker.internal:8080")
+    # server_address = "172.17.0.1:8080"
 
     logger.info(
-        f"[CLIENT-{CLIENT_ID_FOR_LOG}] Starting client | seed={seed} | server={server_address}"
+        f"[CLIENT-{CLIENT_ID_FOR_LOG} | {MODEL_NAME}] Starting client | seed={seed} | server={server_address}"
     )
 
     try:

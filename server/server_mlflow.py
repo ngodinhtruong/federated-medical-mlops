@@ -110,6 +110,24 @@ def _is_new_model_better(new_metrics: Dict[str, float], old_metrics: Optional[Di
         return False
 
     return new_loss < old_loss
+
+
+def _prefix_to_model_type(prefix: str) -> str:
+    """Suy ra model type từ cycle_path prefix."""
+    p = prefix.lower()
+    if "cnn" in p:
+        return "CNN"
+    elif "logreg" in p:
+        return "LogisticRegression"
+    else:
+        return "MLP"
+
+
+def _model_type_to_registry_name(model_type: str, base_name: str) -> str:
+    """Tạo registry name riêng cho từng model type."""
+    suffix = model_type.lower().replace("logisticregression", "logreg")
+    return f"{base_name}_{suffix}"
+
 def log_cycle_to_mlflow(cycle_path: str, cycle_id: str):
     bucket = os.getenv("MINIO_BUCKET", "fl-artifacts")
     client = _minio_client()
@@ -124,6 +142,7 @@ def log_cycle_to_mlflow(cycle_path: str, cycle_id: str):
     chosen = str(chosen_data.get("chosen", "unknown"))
     criteria = str(chosen_data.get("criteria", "unknown"))
     chosen_model_object = chosen_data.get("chosen_object")
+    model_type = chosen_data.get("model_type", _prefix_to_model_type(cycle_path))
 
     meta = chosen_data.get("meta", {}) or {}
     summary = chosen_data.get("summary", {}) or {}
@@ -135,10 +154,11 @@ def log_cycle_to_mlflow(cycle_path: str, cycle_id: str):
     mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000"))
     mlflow.set_experiment(os.getenv("MLFLOW_EXPERIMENT", "fl_experiment"))
 
-    run_name = f"cycle_{cycle_id}"
+    run_name = f"{model_type}_cycle_{cycle_id}"
 
     with mlflow.start_run(run_name=run_name):
         mlflow.set_tag("cycle_id", str(cycle_id))
+        mlflow.set_tag("model_type", model_type)
         mlflow.set_tag("server_id", str(meta.get("server_id", "")))
         mlflow.set_tag("chosen", chosen)
         mlflow.set_tag("criteria", criteria)
@@ -203,7 +223,8 @@ def log_cycle_to_mlflow(cycle_path: str, cycle_id: str):
         if _exists(client, bucket, eval_last_obj):
             _log_json_artifact(_get_json(client, bucket, eval_last_obj), "minio/EVAL", "eval_last.json")
 
-        model_name = os.getenv("MLFLOW_MODEL_NAME", "fl_model")
+        model_base_name = os.getenv("MLFLOW_MODEL_NAME", "fl_model")
+        model_name = _model_type_to_registry_name(model_type, model_base_name)
         mlflow_client = MlflowClient()
 
         registry_metrics = _get_registry_metrics(mlflow_client, model_name)
@@ -232,6 +253,7 @@ def log_cycle_to_mlflow(cycle_path: str, cycle_id: str):
                 mlflow.register_model(model_uri, model_name)
 
                 mlflow.set_tag("model_registered", "true")
+                mlflow.set_tag("registry_name", model_name)
 
         else:
 

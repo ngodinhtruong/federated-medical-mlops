@@ -4,12 +4,21 @@ import torch.nn as nn
 import flwr as fl
 
 from model.MLP import MLP
+from model.SimpleCNN import SimpleCNN
+from model.LogisticRegression import LogisticRegression
+import os
 
 def build_model_from_parameters(params, input_shape):
-
     flat_dim = int(np.prod(input_shape))
-
-    model = MLP(input_dim=flat_dim)
+    prefix = os.getenv("MINIO_PREFIX", "training/mlp")
+    
+    if "cnn" in prefix.lower():
+        channels = 1 if len(input_shape) == 2 else input_shape[0]
+        model = SimpleCNN(input_channels=channels)
+    elif "logreg" in prefix.lower():
+        model = LogisticRegression(input_dim=flat_dim)
+    else:
+        model = MLP(input_dim=flat_dim)
 
     model.eval()
 
@@ -54,9 +63,12 @@ def server_val_loss(params, val_X, val_y):
 
     loss_fn = nn.BCELoss()
 
+    prefix = os.getenv("MINIO_PREFIX", "training/mlp")
     with torch.no_grad():
-
-        X = val_X.view(val_X.size(0), -1)
+        if "cnn" not in prefix.lower():
+            X = val_X.view(val_X.size(0), -1)
+        else:
+            X = val_X
 
         pred = model(X)
 
@@ -69,9 +81,12 @@ def server_eval(params, val_X, val_y):
 
     model = build_model_from_parameters(params, val_X.shape[1:])
 
+    prefix = os.getenv("MINIO_PREFIX", "training/mlp")
     with torch.no_grad():
-
-        X = val_X.view(val_X.size(0), -1)
+        if "cnn" not in prefix.lower():
+            X = val_X.view(val_X.size(0), -1)
+        else:
+            X = val_X
 
         logits = model(X)
 
