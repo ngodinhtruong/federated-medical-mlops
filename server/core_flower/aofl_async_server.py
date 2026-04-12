@@ -35,7 +35,7 @@ VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 run_ts = datetime.now(VN_TZ).strftime("%Y-%m-%d_%H-%M-%S")
 
 BUCKET = os.getenv("MINIO_BUCKET", "fl-artifacts")
-MINIO_PREFIX = os.getenv("MINIO_PREFIX", "cycles")
+MINIO_PREFIX = os.getenv("MINIO_PREFIX", "training/mlp")
 SERVER_ID = os.getenv("SERVER_ID", "server-1")
 CYCLE_ID = os.getenv("CYCLE_ID", run_ts)
 
@@ -90,18 +90,26 @@ class AOFLAsyncServer:
         logger.info(f"[SERVER] Eligible clients (dynamic): {sorted(list(eligible))}")
         return eligible
 
-    def _wait_for_clients(self, n=1, timeout_sec=120):
+    def _wait_for_clients(self, n=1, timeout_sec=None):
+        """Chờ tối thiểu n client kết nối. timeout_sec=None → chờ vô hạn."""
         t0 = time.time()
+        last_log = 0
         while True:
             clients = list(self.client_manager.all().values())
             if len(clients) >= n:
                 return clients
-            if time.time() - t0 > timeout_sec:
+            elapsed = time.time() - t0
+            # Log mỗi 30 giây
+            if elapsed - last_log >= 30:
+                logger.info(f"[SERVER] Waiting for clients… ({len(clients)}/{n} connected, {int(elapsed)}s elapsed)")
+                last_log = elapsed
+            if timeout_sec is not None and elapsed > timeout_sec:
                 raise RuntimeError(f"Timeout waiting for {n} clients, currently {len(clients)}")
-            time.sleep(0.5)
+            time.sleep(2)
 
     def _get_initial_parameters(self):
-        self._wait_for_clients(n=1, timeout_sec=120)
+        logger.info("[SERVER] Waiting for at least 1 client to connect (no timeout)…")
+        self._wait_for_clients(n=1, timeout_sec=None)  # Chờ vô hạn
         clients = list(self.client_manager.all().values())
         cp = random.choice(clients)
 

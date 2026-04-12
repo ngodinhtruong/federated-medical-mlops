@@ -4,3 +4,5 @@ python-multipart
 pillow
 numpy==1.26.4
 minio==7.2.5
+mlflow==2.9.2
+boto3

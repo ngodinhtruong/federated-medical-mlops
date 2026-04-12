@@ -1,5 +1,5 @@
 import sys
-sys.path.append("/opt/fl/server")
+sys.path.insert(0, "/opt/fl")
 
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
@@ -27,30 +27,38 @@ def _minio_client():
 def _find_next_cycle(**context):
     client = _minio_client()
     bucket = os.getenv("MINIO_BUCKET", "fl-artifacts")
-    prefix = os.getenv("MINIO_PREFIX", "cycles").rstrip("/") + "/"
+    prefixes_env = os.getenv("MINIO_PREFIXES", "training/mlp,training/cnn,training/logreg")
+    prefixes = [p.strip() for p in prefixes_env.split(",") if p.strip()]
 
     done_suffix = "/DONE.json"
     processed_suffix = "/PROCESSED.json"
 
-    done_cycles = set()
-    processed_cycles = set()
+    pending = []
 
-    for obj in client.list_objects(bucket, prefix=prefix, recursive=True):
-        name = obj.object_name
-        if name.endswith(done_suffix):
-            cycle_path = name[: -len(done_suffix)]
-            done_cycles.add(cycle_path)
-        elif name.endswith(processed_suffix):
-            cycle_path = name[: -len(processed_suffix)]
-            processed_cycles.add(cycle_path)
+    for prefix in prefixes:
+        prefix_key = prefix.rstrip("/") + "/"
+        done_cycles = set()
+        processed_cycles = set()
 
-    pending = sorted(list(done_cycles - processed_cycles))
+        for obj in client.list_objects(bucket, prefix=prefix_key, recursive=True):
+            name = obj.object_name
+            if name.endswith(done_suffix):
+                cycle_path = name[: -len(done_suffix)]
+                done_cycles.add(cycle_path)
+            elif name.endswith(processed_suffix):
+                cycle_path = name[: -len(processed_suffix)]
+                processed_cycles.add(cycle_path)
+
+        local_pending = sorted(list(done_cycles - processed_cycles))
+        pending.extend([(prefix, p) for p in local_pending])
+
     if not pending:
         raise AirflowSkipException("No new cycle found")
 
-    cycle_path = pending[0]
+    selected_prefix, cycle_path = pending[0]
     cycle_id = cycle_path.split("/")[-1].replace("cycle_", "", 1)
 
+    context["ti"].xcom_push(key="minio_prefix", value=selected_prefix)
     context["ti"].xcom_push(key="cycle_path", value=cycle_path)
     context["ti"].xcom_push(key="cycle_id", value=cycle_id)
     return cycle_id
@@ -128,7 +136,7 @@ with DAG(
             "MINIO_ACCESS_KEY": os.getenv("MINIO_ACCESS_KEY", "admin"),
             "MINIO_SECRET_KEY": os.getenv("MINIO_SECRET_KEY", "admin12345"),
             "MINIO_BUCKET": os.getenv("MINIO_BUCKET", "fl-artifacts"),
-            "MINIO_PREFIX": os.getenv("MINIO_PREFIX", "cycles"),
+            "MINIO_PREFIX": '{{ ti.xcom_pull(task_ids="detect_new_cycle", key="minio_prefix") }}',
             "MINIO_SECURE": os.getenv("MINIO_SECURE", "false"),
         },
         mounts=[

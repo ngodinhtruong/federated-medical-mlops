@@ -32,6 +32,8 @@ data/processed/
 test_images_medmnist/
 
 minio/
+test_data/
+test_images_medmnist/
 
 
 tree.txt

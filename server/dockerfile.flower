@@ -16,7 +16,6 @@ COPY requirements.txt .
 
 RUN pip install --upgrade pip
 
-# install pytorch first (important for docker layer cache)
 RUN pip install --no-cache-dir \
     torch==2.1.0+cpu \
     torchvision==0.16.0+cpu \

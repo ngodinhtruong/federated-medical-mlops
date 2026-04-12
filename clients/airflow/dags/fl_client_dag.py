@@ -18,7 +18,7 @@ source_mount = os.getenv("FL_SOURCE_MOUNT", "/opt/fl")
 with DAG(
     dag_id="fl_client_dag",
     start_date=datetime(2024, 1, 1),
-    schedule="*/5 * * * *",   # chạy mỗi 5 phút
+    schedule="*/5 * * * *",   
     catchup=False,
 ) as dag:
 
@@ -58,10 +58,10 @@ with DAG(
         ],
     )
 
-    train = DockerOperator(
-        task_id="train",
+    check_data_quality = DockerOperator(
+        task_id="check_data_quality",
         image="fl-client:latest",
-        command="python /opt/fl/client.py",
+        command="python /opt/fl/data/check_data_quality.py",
         docker_url="unix://var/run/docker.sock",
         network_mode="project_default",
         auto_remove=True,
@@ -76,4 +76,31 @@ with DAG(
         ],
     )
 
-    ingest_data >> send_status >> train
+    def create_train_task(model_name, server_address):
+        return DockerOperator(
+            task_id=f"train_{model_name.lower()}",
+            image="fl-client:latest",
+            command="python /opt/fl/client.py",
+            docker_url="unix://var/run/docker.sock",
+            network_mode="project_default",
+            auto_remove=True,
+            mount_tmp_dir=False,
+            environment={
+                **env_vars,
+                "MODEL_NAME": model_name,
+                "FL_SERVER_ADDRESS": server_address
+            },
+            mounts=[
+                Mount(
+                    source=source_mount,
+                    target="/opt/fl",
+                    type="bind",
+                ),
+            ],
+        )
+
+    train_mlp = create_train_task("MLP", "fl-server-mlp:8080")
+    train_cnn = create_train_task("CNN", "fl-server-cnn:8080")
+    train_logreg = create_train_task("LogisticRegression", "fl-server-logreg:8080")
+
+    ingest_data >> check_data_quality >> send_status >> [train_mlp, train_cnn, train_logreg]

@@ -2,7 +2,7 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY inference_api/requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -10,8 +10,9 @@ RUN pip install --no-cache-dir \
     torch==2.1.0+cpu \
     torchvision==0.16.0+cpu \
     --extra-index-url https://download.pytorch.org/whl/cpu
-    
-COPY app ./app
+
+COPY inference_api/app ./app
+COPY model ./model
 
 ENV PYTHONPATH=/app
 

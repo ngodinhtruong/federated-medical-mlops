@@ -2,17 +2,17 @@ services:
   fl-client:
     build: .
     image: fl-client:latest
-    container_name: fl-client
+    profiles: [ "donotstart" ]
     volumes:
       - .:/opt/fl
+
   airflow:
     image: apache/airflow:2.8.0
     environment:
-      # Core
       - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-
-
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      - AIRFLOW__WEBSERVER__SECRET_KEY=fl-client-secret
       - CLIENT_ID=${CLIENT_ID}
       - CLIENT_SEED=${CLIENT_SEED}
       - FL_SERVER_ADDRESS=fl-server:8080
@@ -20,10 +20,22 @@ services:
       - .env
     volumes:
       - ./airflow/dags:/opt/airflow/dags
-      - /var/run/docker.sock:/var/run/docker.sock  
-      - .:/opt/fl                                  
-
+      - ./airflow/logs:/opt/airflow/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/opt/fl
     ports:
       - "${AIRFLOW_PORT}:8080"
-    
-    command: standalone
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@local.com 2>/dev/null; true
+        airflow scheduler &
+        exec airflow webserver --port 8080

@@ -78,7 +78,7 @@ def get_eligible_clients(minio_client, bucket):
 
     date = datetime.utcnow().strftime("%Y-%m-%d")
 
-    prefix = f"status/{date}/"
+    prefix = f"clients/status/{date}/"
 
     eligible = []
 

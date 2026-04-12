@@ -7,8 +7,13 @@ services:
     container_name: fast-api-server
     ports:
       - "8000:8000"
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=admin12345
     networks:
-      - project-default
+      - project_default
 networks:
-  project-default:
-    driver: bridge
+  project_default:
+    external: true

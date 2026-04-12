@@ -53,7 +53,7 @@ def ensure_bucket(retries=5):
 
 
 def get_client_state_key():
-    return f"cycle_state/{CLIENT_ID}.json"
+    return f"clients/state/{CLIENT_ID}.json"
 
 
 def read_client_state():
@@ -125,7 +125,7 @@ def push_status():
     cycle_id, data_version = get_or_bump_cycle_id()
 
     date = datetime.utcnow().strftime("%Y-%m-%d")
-    key = f"status/{date}/{CLIENT_ID}.json"
+    key = f"clients/status/{date}/{CLIENT_ID}.json"
 
     payload = {
         "client_id": CLIENT_ID,

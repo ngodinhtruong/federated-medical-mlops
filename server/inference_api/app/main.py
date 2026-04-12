@@ -1,41 +1,55 @@
-from fastapi import FastAPI, File, UploadFile
-from pydantic import BaseModel
-from minio import Minio
-import json
-app = FastAPI()
+from fastapi import FastAPI, HTTPException, File, UploadFile
+from app.model_loader import load_production_model
+from app.preprocess import preprocess_image
+import torch
 
-BUCKET_NAME = "fl-artifacts"
+app = FastAPI(title="FL Medical MLOps Inference API")
 
-def connect_minio():
-    client = Minio(
-        Endpoint="minio:9001",
-        access_key="admin",
-        secret_key="admin12345",
-        secure=False
-    )
-    return client
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to Federated Medical MLOps Inference API"}
 
-client = connect_minio()
-def read_champion_json(client_minio):
-    path_object = "registry/champion.json"
-    response = client_minio.get_object(BUCKET_NAME, path_object)
-    champion_data = response.read().decode('utf-8')
-    path_model = json.loads(champion_data).get("model_path")
-    return  path_model
-def get_model_from_minio(client_minio):
-    path_model = read_champion_json(client_minio)
-    client_minio.get_object(BUCKET_NAME, path_model)
-
-
-@app.post("/create_product/")
-async def create_product(name: str, price: float):
-    return {"name": name, "price": price}
-
-@app.get("/get_product/{product_id}")
-async def get_product(product_id: int):
-    return f"Product ID: {product_id} - Name: Sample Product - Price: $9.99"
-
-@app.post("/test_send_message/")
-async def test_send_message(message):
-    return {"message": message}
-
+@app.post("/predict/upload")
+async def predict_upload(model_type: str, file: UploadFile = File(...)):
+    """
+    Dự đoán ảnh thông qua các model FL.
+    - model_type: 'mlp', 'cnn', hoặc 'logreg'
+    - file: Hình ảnh đầu vào (jpg, png...)
+    """
+    valid_models = ["mlp", "cnn", "logreg"]
+    mt = model_type.lower()
+    if mt not in valid_models:
+        raise HTTPException(status_code=400, detail=f"model_type phải là 1 trong {valid_models}")
+        
+    # Tải động Model từ MLflow theo loại được truyền vào (A/B testing)
+    model_info = load_production_model(mt)
+    if "error" in model_info:
+        raise HTTPException(status_code=500, detail=model_info["error"])
+        
+    # Đọc và tiền xử lý ảnh
+    try:
+        image_bytes = await file.read()
+        tensor = preprocess_image(image_bytes)  # Trả về shape [1, 1, 28, 28]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Lỗi khi xử lý hình ảnh: {str(e)}")
+        
+    # Dàn phẳng tensor cho MLP và LogReg theo quy định của class
+    if mt in ["mlp", "logreg"]:
+        tensor = tensor.view(tensor.size(0), -1) # Thành [1, 784]
+        
+    # Thâm nhập mạng Neural
+    net = model_info["network"]
+    
+    with torch.no_grad():
+        output = net(tensor) # Output: Tensor([[0.823]])
+        prob = float(output.item())
+        
+    diagnosis = "Pneumonia (Viêm phổi)" if prob > 0.5 else "Normal (Bình thường)"
+    
+    return {
+        "model_used": model_info["registry"],
+        "model_version": model_info["version"],
+        "pneumonia_probability": round(prob, 4),
+        "diagnosis": diagnosis,
+        "detail": "Suy luận trực tiếp bằng PyTorch và MLflow thành công!"
+    }

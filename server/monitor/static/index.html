@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FL Monitor — MLOps Dashboard</title>
+    <link rel="stylesheet" href="/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ===== SIDEBAR DRAWER (History) ===== -->
+<div class="drawer-backdrop" id="drawerBackdrop"></div>
+<aside class="drawer" id="drawer">
+    <div class="drawer-head">
+        <span>📜 Training History</span>
+        <button id="drawerCloseBtn">&times;</button>
+    </div>
+    <div class="drawer-scroll">
+        <table class="hist-table">
+            <thead><tr><th>Model</th><th>Cycle</th><th>F1</th><th>Loss</th><th>Promoted</th><th>When</th><th></th></tr></thead>
+            <tbody id="histBody"><tr><td colspan="7" class="muted center">No data</td></tr></tbody>
+        </table>
+    </div>
+</aside>
+
+<!-- ===== HEADER ===== -->
+<header>
+    <div class="h-left">
+        <button class="icon-btn" id="histBtn" title="Training History">📜</button>
+        <div class="logo"><span class="logo-g">◈</span> FL Monitor</div>
+    </div>
+    <div class="h-right">
+        <span class="dot green pulse" id="sysDot"></span>
+        <span id="sysText">Connecting…</span>
+        <span class="clock" id="clock"></span>
+    </div>
+</header>
+
+<!-- ===== MAIN ===== -->
+<main>
+    <!-- Stats -->
+    <section class="stats">
+        <div class="s-card"><div class="s-icon">👥</div><div><div class="s-val" id="vClients">-</div><div class="s-lbl">Clients</div></div></div>
+        <div class="s-card"><div class="s-icon">🏆</div><div><div class="s-val" id="vChamp">-</div><div class="s-lbl">Champion</div></div></div>
+        <div class="s-card"><div class="s-icon">🔄</div><div><div class="s-val" id="vCycles">-</div><div class="s-lbl">Cycles</div></div></div>
+        <div class="s-card"><div class="s-icon">📊</div><div><div class="s-val" id="vF1">-</div><div class="s-lbl">Best F1</div></div></div>
+    </section>
+
+    <!-- Row: Clients + Champion -->
+    <section class="row2">
+        <div class="card">
+            <h2 class="card-t">👥 Clients</h2>
+            <div id="clientsList"></div>
+        </div>
+        <div class="card">
+            <h2 class="card-t">🏆 Production Model</h2>
+            <div id="champBox"><p class="muted center">No champion yet</p></div>
+        </div>
+    </section>
+
+        <!-- Row 3: 3 Server Logs -->
+        <section class="logs-row">
+            <div class="log-box">
+                <div class="log-head"><span class="dot red" id="dMlp"></span> fl-server-mlp</div>
+                <pre class="term" id="tMlp">Loading…</pre>
+            </div>
+            <div class="log-box">
+                <div class="log-head"><span class="dot red" id="dCnn"></span> fl-server-cnn</div>
+                <pre class="term" id="tCnn">Loading…</pre>
+            </div>
+            <div class="log-box">
+                <div class="log-head"><span class="dot red" id="dLogreg"></span> fl-server-logreg</div>
+                <pre class="term" id="tLogreg">Loading…</pre>
+            </div>
+        </section>
+
+        <!-- Row 4: Chart -->
+        <section class="row1">
+            <div class="card">
+                <h2 class="card-t">📈 Performance</h2>
+                <div class="chart-box"><canvas id="chart"></canvas></div>
+            </div>
+        </section>
+</main>
+
+<!-- ===== JSON MODAL ===== -->
+<div class="modal-bg" id="modalBg">
+    <div class="modal">
+        <div class="modal-head"><span id="modalTitle">JSON</span><button id="modalX">&times;</button></div>
+        <pre class="modal-pre" id="modalPre"></pre>
+    </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
