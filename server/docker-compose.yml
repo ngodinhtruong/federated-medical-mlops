@@ -17,15 +17,20 @@ services:
     networks:
       - project_default
   fl-server-mlp:
+  fl-server-mlp:
     build:
       context: .
       dockerfile: dockerfile.flower
     image: fl-server:latest
     container_name: fl-server-mlp
+    container_name: fl-server-mlp
     restart: unless-stopped
+    command: [ "/bin/sh", "/opt/fl/entrypoint_fl.sh" ]
     command: [ "/bin/sh", "/opt/fl/entrypoint_fl.sh" ]
     environment:
       SERVER_LOG_LEVEL: INFO
+      MINIO_PREFIX: "training/mlp"
+      SERVER_ID: "server-mlp"
       MINIO_PREFIX: "training/mlp"
       SERVER_ID: "server-mlp"
     networks:
@@ -34,6 +39,38 @@ services:
       - .:/opt/fl
     ports:
       - "8080:8080"
+
+  fl-server-cnn:
+    image: fl-server:latest
+    container_name: fl-server-cnn
+    restart: unless-stopped
+    command: [ "/bin/sh", "/opt/fl/entrypoint_fl.sh" ]
+    environment:
+      SERVER_LOG_LEVEL: INFO
+      MINIO_PREFIX: "training/cnn"
+      SERVER_ID: "server-cnn"
+    networks:
+      - project_default
+    volumes:
+      - .:/opt/fl
+    ports:
+      - "8082:8080"
+
+  fl-server-logreg:
+    image: fl-server:latest
+    container_name: fl-server-logreg
+    restart: unless-stopped
+    command: [ "/bin/sh", "/opt/fl/entrypoint_fl.sh" ]
+    environment:
+      SERVER_LOG_LEVEL: INFO
+      MINIO_PREFIX: "training/logreg"
+      SERVER_ID: "server-logreg"
+    networks:
+      - project_default
+    volumes:
+      - .:/opt/fl
+    ports:
+      - "8083:8080"
 
   fl-server-cnn:
     image: fl-server:latest
@@ -76,6 +113,7 @@ services:
       POSTGRES_DB: airflow
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U airflow" ]
+      test: [ "CMD-SHELL", "pg_isready -U airflow" ]
       interval: 5s
       retries: 5
     volumes:
@@ -83,6 +121,7 @@ services:
       - ./postgres/init:/docker-entrypoint-initdb.d
     networks:
       - project_default
+
 
   mlflow:
     build:
@@ -98,6 +137,7 @@ services:
       AWS_SECRET_ACCESS_KEY: admin12345
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
     command: >
+      mlflow server --backend-store-uri postgresql://airflow:airflow@postgres/mlflow --default-artifact-root s3://fl-artifacts/mlflow --host 0.0.0.0 --port 5000
       mlflow server --backend-store-uri postgresql://airflow:airflow@postgres/mlflow --default-artifact-root s3://fl-artifacts/mlflow --host 0.0.0.0 --port 5000
     ports:
       - "5000:5000"
@@ -124,12 +164,15 @@ services:
 
       PIP_ADDITIONAL_REQUIREMENTS: "minio==7.2.5 mlflow==2.9.2"
       PYTHONPATH: /opt/fl
+      PIP_ADDITIONAL_REQUIREMENTS: "minio==7.2.5 mlflow==2.9.2"
+      PYTHONPATH: /opt/fl
     env_file:
       - .env
     user: "0:0"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
+      - .:/opt/fl
       - .:/opt/fl
     command: db init
     networks:
