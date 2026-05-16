@@ -3,6 +3,8 @@ import os
 import time
 from zoneinfo import ZoneInfo
 from minio import Minio
+from prometheus_client import start_http_server
+
 
 from data.load_data import load_test_ds
 
@@ -19,6 +21,11 @@ def stage_train(aofl):
 
 def main(minio_client):
     logger.info("Starting Flower server (CUSTOM AOFL ASYNC - EVENT ELIGIBLE)")
+
+    # Start Prometheus HTTP server for metrics
+    metrics_port = int(os.getenv("METRICS_PORT", "8001"))
+    start_http_server(metrics_port)
+    logger.info(f"[PROMETHEUS] Metrics server started at port {metrics_port}")
 
     val_X, val_y = load_test_ds()
     val_X = val_X.float()

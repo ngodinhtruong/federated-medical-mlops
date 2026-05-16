@@ -2,8 +2,27 @@ from fastapi import FastAPI, HTTPException, File, UploadFile
 from app.model_loader import load_production_model
 from app.preprocess import preprocess_image
 import torch
+from prometheus_client import Counter, Histogram, make_asgi_app
+
 
 app = FastAPI(title="FL Medical MLOps Inference API")
+
+# Prometheus Metrics
+PREDICTION_COUNT = Counter(
+    "medical_predictions_total",
+    "Total number of predictions",
+    ["model_type", "diagnosis"]
+)
+PREDICTION_LATENCY = Histogram(
+    "medical_prediction_duration_seconds",
+    "Time taken for prediction",
+    ["model_type"]
+)
+
+# Expose metrics endpoint
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
+
 
 @app.get("/")
 def read_root():
@@ -48,11 +67,14 @@ async def predict_upload(model_type: str, file: UploadFile = File(...)):
     # Thâm nhập mạng Neural
     net = model_info["network"]
     
-    with torch.no_grad():
-        output = net(tensor) # Output: Tensor([[0.823]])
-        prob = float(output.item())
-        
+    with PREDICTION_LATENCY.labels(model_type=mt).time():
+        with torch.no_grad():
+            output = net(tensor) # Output: Tensor([[0.823]])
+            prob = float(output.item())
+            
     diagnosis = "Pneumonia (Viêm phổi)" if prob > 0.5 else "Normal (Bình thường)"
+    
+    PREDICTION_COUNT.labels(model_type=mt, diagnosis=diagnosis).inc()
     
     return {
         "model_used": model_info["registry"],

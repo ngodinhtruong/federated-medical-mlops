@@ -4,6 +4,8 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 from zoneinfo import ZoneInfo
+from prometheus_client import Gauge, Counter
+
 
 from utils.logger_utils import logger
 
@@ -38,6 +40,15 @@ BUCKET = os.getenv("MINIO_BUCKET", "fl-artifacts")
 MINIO_PREFIX = os.getenv("MINIO_PREFIX", "training/mlp")
 SERVER_ID = os.getenv("SERVER_ID", "server-1")
 CYCLE_ID = os.getenv("CYCLE_ID", run_ts)
+
+# Prometheus Metrics
+FL_VERSION = Gauge("fl_server_version", "Current server version (total updates)", ["server_id"])
+FL_GLOBAL_LOSS = Gauge("fl_global_loss", "Current global validation loss", ["server_id"])
+FL_GLOBAL_ACC = Gauge("fl_global_acc", "Current global validation accuracy", ["server_id"])
+FL_ROUND_ID = Gauge("fl_round_id", "Current round ID in cycle", ["server_id"])
+FL_UPDATES_TOTAL = Counter("fl_updates_total", "Total updates applied", ["server_id"])
+FL_CLIENTS_ACTIVE = Gauge("fl_clients_active", "Number of connected clients", ["server_id"])
+
 
 class AOFLAsyncServer:
     def __init__(self,client_manager,val_X,val_y,*,alpha0=0.5,max_updates=200,concurrency=3,max_rounds_per_cycle=10,Log_file=None, minio_client=None):
@@ -96,6 +107,7 @@ class AOFLAsyncServer:
         last_log = 0
         while True:
             clients = list(self.client_manager.all().values())
+            FL_CLIENTS_ACTIVE.labels(server_id=SERVER_ID).set(len(clients))
             if len(clients) >= n:
                 return clients
             elapsed = time.time() - t0
@@ -243,6 +255,7 @@ class AOFLAsyncServer:
 
             fc = str(getattr(cp, "cid", ""))
             round_id += 1
+            FL_ROUND_ID.labels(server_id=SERVER_ID).set(round_id)
 
             params_snapshot = snapshot_parameters(self.global_parameters)
             base_version_snapshot = int(self.version)
@@ -327,13 +340,21 @@ class AOFLAsyncServer:
                 global_nd = [(1 - alpha) * g + alpha * c for g, c in zip(global_nd, client_nd)]
 
                 self.version += 1
+                FL_VERSION.labels(server_id=SERVER_ID).set(self.version)
                 updates_applied += 1
+                FL_UPDATES_TOTAL.labels(server_id=SERVER_ID).inc()
                 last_progress_ts = time.time()
 
                 self.global_parameters = ndarrays_to_parameters(global_nd)
                 self.latest_parameters = self.global_parameters
 
-                global_loss = server_val_loss(self.latest_parameters, self.val_X, self.val_y)
+                # Evaluate global model
+                eval_res = server_eval(self.latest_parameters, self.val_X, self.val_y)
+                global_loss = eval_res["loss"]
+                global_acc = eval_res["accuracy"]
+
+                FL_GLOBAL_LOSS.labels(server_id=SERVER_ID).set(global_loss)
+                FL_GLOBAL_ACC.labels(server_id=SERVER_ID).set(global_acc)
 
                 record = {
                     "ts": datetime.now(VN_TZ).isoformat(),
