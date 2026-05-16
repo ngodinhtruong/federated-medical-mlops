@@ -4,14 +4,10 @@ import numpy as np
 import torch
 from torch.utils.data import TensorDataset
 
-
 STREAM_DIR = "data_stream"
 
-
 # ================= path resolve (CLIENT ONLY) =================
-
 def _get_client_stream_path():
-
     role = os.getenv("ROLE", "client").lower()
     if role != "client":
         raise RuntimeError("This loader is CLIENT-only")
@@ -31,9 +27,7 @@ def _get_client_stream_path():
 
     return path
 
-
 # ================= tensor convert =================
-
 def _to_tensor(X, y):
     X = torch.tensor(X, dtype=torch.float32)
     y = torch.tensor(y, dtype=torch.float32)
@@ -43,13 +37,11 @@ def _to_tensor(X, y):
 
     return X, y
 
-
-def load_data_split(client_id,seed):
-
-
+def load_data_split(client_id=None, seed=None):
     seed_env = os.getenv("DATA_SEED",'1')
     if seed_env:
         seed = int(seed_env)
+        
     path = _get_client_stream_path()
     data = np.load(path)
 
@@ -59,10 +51,8 @@ def load_data_split(client_id,seed):
     X_train, y_train = _to_tensor(data["X_train"], data["y_train"])
     X_eval, y_eval = _to_tensor(data["X_eval"], data["y_eval"])
 
-
-
     train_ds = TensorDataset(X_train, y_train)
-    val_ds   = TensorDataset(X_eval, y_eval)
+    val_ds = TensorDataset(X_eval, y_eval)
 
     print(
         f"[DATA][CLIENT] id={os.getenv('CLIENT_ID','A')} "
@@ -71,7 +61,3 @@ def load_data_split(client_id,seed):
     )
 
     return train_ds, val_ds
-
-
-
-load_data_split('A','1')
