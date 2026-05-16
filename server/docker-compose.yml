@@ -37,6 +37,9 @@ services:
 
   fl-server-cnn:
     image: fl-server:latest
+    build:
+      context: .
+      dockerfile: dockerfile.flower
     container_name: fl-server-cnn
     restart: unless-stopped
     command: [ "/bin/sh", "/opt/fl/entrypoint_fl.sh" ]
@@ -53,6 +56,9 @@ services:
 
   fl-server-logreg:
     image: fl-server:latest
+    build:
+      context: .
+      dockerfile: dockerfile.flower
     container_name: fl-server-logreg
     restart: unless-stopped
     command: [ "/bin/sh", "/opt/fl/entrypoint_fl.sh" ]
@@ -108,7 +114,7 @@ services:
     build:
       context: .
       dockerfile: dockerfile.airflow
-    image: apache/airflow:2.8.0
+    image: fl-airflow-server:latest
     container_name: airflow-init
     depends_on:
       - postgres
@@ -135,7 +141,10 @@ services:
     networks:
       - project_default
   airflow-webserver:
-    image: apache/airflow:2.8.0
+    build:
+      context: .
+      dockerfile: dockerfile.airflow
+    image: fl-airflow-server:latest
     container_name: airflow-web
     depends_on:
       - airflow-init
@@ -169,7 +178,10 @@ services:
     networks:
       - project_default
   airflow-scheduler:
-    image: apache/airflow:2.8.0
+    build:
+      context: .
+      dockerfile: dockerfile.airflow
+    image: fl-airflow-server:latest
     container_name: airflow-scheduler
     depends_on:
       - airflow-init
@@ -231,10 +243,29 @@ services:
       - AWS_SECRET_ACCESS_KEY=admin12345
     networks:
       - project_default
+    depends_on:
+      - mlflow
+      - minio
+
+  django-web:
+    build:
+      context: ./webapp
+    image: fl-django-web:latest
+    container_name: django-web
+    restart: unless-stopped
+    environment:
+      FASTAPI_URL: http://fast-api-server:8000
+      DJANGO_ALLOWED_HOSTS: "*"
+    ports:
+      - "8001:8000"
+    networks:
+      - project_default
+    depends_on:
+      - fast-api-server
 volumes:
   postgres-db-volume:
   mlflow-artifacts:
   minio_data:
 networks:
   project_default:
-    external: true
+    name: project_default

@@ -13,6 +13,7 @@ def preprocess_image(image_bytes):
     img = img.resize((IMG_SIZE, IMG_SIZE))
 
     arr = np.array(img).astype("float32") / 255.0
+    arr = (arr - 0.5) / 0.5
 
     arr = arr.reshape(1, 1, IMG_SIZE, IMG_SIZE)
 

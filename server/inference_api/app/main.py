@@ -7,7 +7,15 @@ app = FastAPI(title="FL Medical MLOps Inference API")
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to Federated Medical MLOps Inference API"}
+    return {
+        "message": "Federated Medical MLOps Inference API",
+        "models": ["mlp", "cnn", "logreg"],
+        "docs": "/docs",
+    }
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 @app.post("/predict/upload")
 async def predict_upload(model_type: str, file: UploadFile = File(...)):

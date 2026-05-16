@@ -26,6 +26,7 @@ def load_production_model(model_type: str):
     """
     Tải model từ MLflow, khởi tạo kiến trúc, nạp weights (.pth), trả về Neural Network sống.
     """
+    mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000"))
     client = MlflowClient()
     registry_name = f"fl_model_{model_type.lower()}"
     

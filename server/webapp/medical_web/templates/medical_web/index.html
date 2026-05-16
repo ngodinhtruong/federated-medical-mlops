@@ -1,0 +1,143 @@
+{% load static %}
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hỗ trợ đọc phim X-ray phổi</title>
+  <link rel="stylesheet" href="{% static 'medical_web/styles.css' %}">
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Federated X-ray Screening</p>
+        <h1>Hỗ trợ sàng lọc viêm phổi từ ảnh X-ray</h1>
+      </div>
+      <div class="system-pill">
+        <span></span>
+        Hệ thống đang sẵn sàng
+      </div>
+    </header>
+
+    <section class="notice">
+      <strong>Lưu ý an toàn:</strong>
+      Kết quả chỉ dùng để hỗ trợ sàng lọc. Không thay thế kết luận của bác sĩ chẩn đoán hình ảnh.
+    </section>
+
+    <section class="workspace">
+      <form method="post" enctype="multipart/form-data" class="exam-form">
+        {% csrf_token %}
+        <div class="section-title">
+          <span>01</span>
+          <div>
+            <h2>Thông tin đầu vào</h2>
+            <p>Chọn model đã được đăng ký trên MLflow và tải lên ảnh X-ray ngực.</p>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Model hỗ trợ</span>
+          <select name="model_type">
+            {% for model in models %}
+              <option value="{{ model.value }}" {% if selected_model == model.value %}selected{% endif %}>
+                {{ model.label }} - {{ model.hint }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="upload-zone" for="imageInput">
+          <input id="imageInput" type="file" name="image" accept="image/png,image/jpeg,image/jpg" required>
+          <span class="upload-kicker">Ảnh X-ray</span>
+          <strong>Chọn tệp để phân tích</strong>
+          <small>PNG, JPG hoặc JPEG. Nên dùng ảnh X-ray ngực trước-sau, không chèn chữ hoặc viền dày.</small>
+        </label>
+
+        <div class="preview-shell">
+          <img id="previewImage" alt="X-ray preview">
+          <div id="previewEmpty">
+            <span></span>
+            <p>Bạn xem trước ảnh tải lên tại đây</p>
+          </div>
+        </div>
+
+        <button type="submit">Phân tích ảnh</button>
+      </form>
+
+      <section class="clinical-panel">
+        <div class="section-title">
+          <span>02</span>
+          <div>
+            <h2>Kết quả hỗ trợ</h2>
+            <p>Nên đọc cùng tiền sử bệnh, triệu chứng và kết quả khám lâm sàng.</p>
+          </div>
+        </div>
+
+        {% if error %}
+          <div class="alert">{{ error }}</div>
+        {% elif result %}
+          <div class="risk-card {{ result.clinical_level }}">
+            <p>Muc danh gia</p>
+            <strong>{{ result.clinical_label }}</strong>
+            <span>{{ result.clinical_note }}</span>
+          </div>
+
+          <div class="probability">
+            <div class="probability-head">
+              <span>Xác suất viêm phổi</span>
+              <strong>{{ result.probability_percent }}%</strong>
+            </div>
+            <div class="meter">
+              <div style="width: {{ result.probability_percent }}%"></div>
+            </div>
+            <div class="scale">
+              <span>Thấp</span>
+              <span>Cần đọc lại</span>
+              <span>Cao</span>
+            </div>
+          </div>
+
+          <dl class="result-list">
+            <div>
+              <dt>Kết quả gốc từ API</dt>
+              <dd>{{ result.diagnosis }}</dd>
+            </div>
+            <div>
+              <dt>Model registry</dt>
+              <dd>{{ result.model_used }} v{{ result.model_version }}</dd>
+            </div>
+            <div>
+              <dt>Ngưỡng hiện tại</dt>
+              <dd>0.45 / 0.65 với vùng không chắc chắn</dd>
+            </div>
+          </dl>
+        {% else %}
+          <div class="empty-result">
+            <strong>Chưa có ảnh được phân tích</strong>
+            <p>Kết quả sẽ hiển thị kèm mức nguy cơ và khuyến nghị đọc lại khi xác suất nằm gần ngưỡng.</p>
+          </div>
+        {% endif %}
+      </section>
+    </section>
+
+  </main>
+
+  <script>
+    const input = document.getElementById("imageInput");
+    const preview = document.getElementById("previewImage");
+    const empty = document.getElementById("previewEmpty");
+
+    input.addEventListener("change", () => {
+      const file = input.files && input.files[0];
+      if (!file) {
+        preview.removeAttribute("src");
+        empty.hidden = false;
+        return;
+      }
+      preview.src = URL.createObjectURL(file);
+      empty.hidden = true;
+    });
+  </script>
+</body>
+</html>
