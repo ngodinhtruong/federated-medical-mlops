@@ -15,7 +15,7 @@ services:
       - AIRFLOW__WEBSERVER__SECRET_KEY=fl-client-secret
       - CLIENT_ID=${CLIENT_ID}
       - CLIENT_SEED=${CLIENT_SEED}
-      - FL_SERVER_ADDRESS=fl-server:8080
+      - FL_SERVER_ADDRESS=${FL_SERVER_ADDRESS}
     env_file:
       - .env
     volumes:
