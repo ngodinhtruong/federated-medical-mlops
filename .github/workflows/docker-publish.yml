@@ -86,7 +86,8 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             cd ${{ secrets.SERVER_PATH }}
-            git pull origin main
+            git fetch --all
+            git reset --hard origin/main
             
             # Nếu SERVER_PATH trỏ vào gốc dự án, tự động chui vào thư mục server
             if [ -d "server" ]; then cd server; fi
