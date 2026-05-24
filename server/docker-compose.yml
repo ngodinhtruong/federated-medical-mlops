@@ -16,6 +16,8 @@ services:
       - minio_data:/data
     networks:
       - project_default
+
+  fl-server-mlp:
     image: ghcr.io/ngodinhtruong/federated-medical-mlops-server:main
     container_name: fl-server-mlp
     restart: unless-stopped
