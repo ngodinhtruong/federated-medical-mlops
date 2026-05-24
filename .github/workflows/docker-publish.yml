@@ -34,6 +34,12 @@ jobs:
           - image_suffix: airflow
             dockerfile: server/dockerfile.airflow
             context: server
+          - image_suffix: clients
+            dockerfile: clients/dockerfile
+            context: clients
+          - image_suffix: mlflow
+            dockerfile: server/dockerfile.mlflow
+            context: server
 
     steps:
       - name: Checkout repository
@@ -66,3 +72,20 @@ jobs:
           # Caching to speed up builds
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Deploy to AWS via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd ${{ secrets.SERVER_PATH }}
+            docker compose pull
+            docker compose up -d
+            docker image prune -f

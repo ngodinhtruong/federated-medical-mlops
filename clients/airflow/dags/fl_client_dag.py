@@ -10,7 +10,9 @@ from dotenv import dotenv_values
 
 CLIENT_ID = os.getenv("CLIENT_ID", "A")
 ENV_FILE = f"/opt/fl/env/client_{CLIENT_ID}.env"
-
+FL_SERVER_MLP = os.getenv("FL_SERVER_MLP", "fl-server-mlp:8080")
+FL_SERVER_CNN = os.getenv("FL_SERVER_CNN", "fl-server-cnn:8080")
+FL_SERVER_LOGREG = os.getenv("FL_SERVER_LOGREG", "fl-server-logreg:8080")
 env_vars = dotenv_values(ENV_FILE)
 
 source_mount = os.getenv("FL_SOURCE_MOUNT", "/opt/fl")
@@ -99,8 +101,8 @@ with DAG(
             ],
         )
 
-    train_mlp = create_train_task("MLP", "fl-server-mlp:8080")
-    train_cnn = create_train_task("CNN", "fl-server-cnn:8080")
-    train_logreg = create_train_task("LogisticRegression", "fl-server-logreg:8080")
+    train_mlp = create_train_task("MLP", FL_SERVER_MLP)
+    train_cnn = create_train_task("CNN", FL_SERVER_CNN)
+    train_logreg = create_train_task("LogisticRegression", FL_SERVER_LOGREG)
 
     ingest_data >> check_data_quality >> send_status >> [train_mlp, train_cnn, train_logreg]

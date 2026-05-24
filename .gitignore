@@ -16,10 +16,10 @@ venv/
 logs/
 **/logs/
 
-
-# *.env
-# **/env/
-# .env
+*.env
+.env
+**/env/*.env
+!*.env.example
 
 *.pt
 *.pth
