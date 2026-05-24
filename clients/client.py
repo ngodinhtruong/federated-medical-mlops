@@ -61,8 +61,8 @@ class FLClient(fl.client.NumPyClient):
         self.client_id = os.getenv("CLIENT_ID", "A")
         self.stop_after_round = int(os.getenv("CLIENT_STOP_AFTER_ROUND", "0"))
 
-        self.delay_sec = 3
-        self.delay_jitter_sec = 3
+        self.delay_sec = 1
+        self.delay_jitter_sec = 1
 
         self.train_set, self.val_set = load_data_split(client_id=self.client_id, seed=seed)
 
