@@ -38,9 +38,11 @@ jobs:
       - name: Check Docker Compose config (Server)
         run: |
           cd server
+          cp .env.example .env
           docker compose config -q
           
       - name: Check Docker Compose config (Clients)
         run: |
           cd clients
+          cp .env.example .env
           docker compose config -q
