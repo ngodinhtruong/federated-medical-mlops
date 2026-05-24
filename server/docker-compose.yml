@@ -158,6 +158,7 @@ services:
     networks:
       - project_default
   airflow-webserver:
+    user: "0:0"
     build:
       context: .
       dockerfile: dockerfile.airflow
@@ -195,6 +196,7 @@ services:
     networks:
       - project_default
   airflow-scheduler:
+    user: "0:0"
     build:
       context: .
       dockerfile: dockerfile.airflow
