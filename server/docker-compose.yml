@@ -18,6 +18,9 @@ services:
       - project_default
 
   fl-server-mlp:
+    build:
+      context: .
+      dockerfile: dockerfile.flower
     image: ghcr.io/ngodinhtruong/federated-medical-mlops-server:main
     container_name: fl-server-mlp
     restart: unless-stopped
@@ -32,8 +35,16 @@ services:
       - .:/opt/fl
     ports:
       - "8080:8080"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   fl-server-cnn:
+    build:
+      context: .
+      dockerfile: dockerfile.flower
     image: ghcr.io/ngodinhtruong/federated-medical-mlops-server:main
     container_name: fl-server-cnn
     restart: unless-stopped
@@ -48,8 +59,16 @@ services:
       - .:/opt/fl
     ports:
       - "8082:8080"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   fl-server-logreg:
+    build:
+      context: .
+      dockerfile: dockerfile.flower
     image: ghcr.io/ngodinhtruong/federated-medical-mlops-server:main
     container_name: fl-server-logreg
     restart: unless-stopped
@@ -64,6 +83,11 @@ services:
       - .:/opt/fl
     ports:
       - "8083:8080"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   postgres:
     image: postgres:13
@@ -83,6 +107,9 @@ services:
       - project_default
 
   mlflow:
+    build:
+      context: .
+      dockerfile: dockerfile.mlflow
     image: ghcr.io/ngodinhtruong/federated-medical-mlops-mlflow:main
     container_name: mlflow
     restart: unless-stopped
@@ -101,6 +128,9 @@ services:
       - project_default
 
   airflow-init:
+    build:
+      context: .
+      dockerfile: dockerfile.airflow
     image: ghcr.io/ngodinhtruong/federated-medical-mlops-airflow:main
     container_name: airflow-init
     depends_on:
@@ -128,6 +158,9 @@ services:
     networks:
       - project_default
   airflow-webserver:
+    build:
+      context: .
+      dockerfile: dockerfile.airflow
     image: ghcr.io/ngodinhtruong/federated-medical-mlops-airflow:main
     container_name: airflow-web
     depends_on:
@@ -162,6 +195,9 @@ services:
     networks:
       - project_default
   airflow-scheduler:
+    build:
+      context: .
+      dockerfile: dockerfile.airflow
     image: ghcr.io/ngodinhtruong/federated-medical-mlops-airflow:main
     container_name: airflow-scheduler
     depends_on:
@@ -192,6 +228,8 @@ services:
       - project_default
 
   monitor:
+    build:
+      context: ./monitor
     image: ghcr.io/ngodinhtruong/federated-medical-mlops-monitor:main
     container_name: fl-monitor
     restart: unless-stopped
@@ -210,6 +248,9 @@ services:
     depends_on:
       - minio
   fast-api-server:
+    build:
+      context: .
+      dockerfile: inference_api/dockerfile.fastapi
     image: ghcr.io/ngodinhtruong/federated-medical-mlops-inference-api:main
     container_name: fast-api-server
     ports:
@@ -226,6 +267,8 @@ services:
       - minio
 
   django-web:
+    build:
+      context: ./webapp
     image: ghcr.io/ngodinhtruong/federated-medical-mlops-webapp:main
     container_name: django-web
     restart: unless-stopped
@@ -238,6 +281,11 @@ services:
       - project_default
     depends_on:
       - fast-api-server
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   prometheus:
     image: prom/prometheus:latest
@@ -270,6 +318,11 @@ services:
       - project_default
     depends_on:
       - prometheus
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   node-exporter:
     image: prom/node-exporter:latest
