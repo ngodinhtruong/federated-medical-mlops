@@ -86,6 +86,9 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             cd ${{ secrets.SERVER_PATH }}
+            # Nếu SERVER_PATH trỏ vào gốc dự án, tự động chui vào thư mục server
+            if [ -d "server" ]; then cd server; fi
+            
             docker compose pull
             docker compose up -d
             docker image prune -f

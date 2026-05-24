@@ -16,11 +16,7 @@ services:
       - minio_data:/data
     networks:
       - project_default
-  fl-server-mlp:
-    build:
-      context: .
-      dockerfile: dockerfile.flower
-    image: fl-server:latest
+    image: ghcr.io/ngodinhtruong/federated-medical-mlops-server:main
     container_name: fl-server-mlp
     restart: unless-stopped
     command: [ "/bin/sh", "/opt/fl/entrypoint_fl.sh" ]
@@ -36,10 +32,7 @@ services:
       - "8080:8080"
 
   fl-server-cnn:
-    image: fl-server:latest
-    build:
-      context: .
-      dockerfile: dockerfile.flower
+    image: ghcr.io/ngodinhtruong/federated-medical-mlops-server:main
     container_name: fl-server-cnn
     restart: unless-stopped
     command: [ "/bin/sh", "/opt/fl/entrypoint_fl.sh" ]
@@ -55,10 +48,7 @@ services:
       - "8082:8080"
 
   fl-server-logreg:
-    image: fl-server:latest
-    build:
-      context: .
-      dockerfile: dockerfile.flower
+    image: ghcr.io/ngodinhtruong/federated-medical-mlops-server:main
     container_name: fl-server-logreg
     restart: unless-stopped
     command: [ "/bin/sh", "/opt/fl/entrypoint_fl.sh" ]
@@ -91,9 +81,7 @@ services:
       - project_default
 
   mlflow:
-    build:
-      context: .
-      dockerfile: dockerfile.mlflow
+    image: ghcr.io/ngodinhtruong/federated-medical-mlops-mlflow:main
     container_name: mlflow
     restart: unless-stopped
     depends_on:
@@ -111,10 +99,7 @@ services:
       - project_default
 
   airflow-init:
-    build:
-      context: .
-      dockerfile: dockerfile.airflow
-    image: fl-airflow-server:latest
+    image: ghcr.io/ngodinhtruong/federated-medical-mlops-airflow:main
     container_name: airflow-init
     depends_on:
       - postgres
@@ -141,10 +126,7 @@ services:
     networks:
       - project_default
   airflow-webserver:
-    build:
-      context: .
-      dockerfile: dockerfile.airflow
-    image: fl-airflow-server:latest
+    image: ghcr.io/ngodinhtruong/federated-medical-mlops-airflow:main
     container_name: airflow-web
     depends_on:
       - airflow-init
@@ -178,10 +160,7 @@ services:
     networks:
       - project_default
   airflow-scheduler:
-    build:
-      context: .
-      dockerfile: dockerfile.airflow
-    image: fl-airflow-server:latest
+    image: ghcr.io/ngodinhtruong/federated-medical-mlops-airflow:main
     container_name: airflow-scheduler
     depends_on:
       - airflow-init
@@ -211,8 +190,7 @@ services:
       - project_default
 
   monitor:
-    build:
-      context: ./monitor
+    image: ghcr.io/ngodinhtruong/federated-medical-mlops-monitor:main
     container_name: fl-monitor
     restart: unless-stopped
     environment:
@@ -230,10 +208,7 @@ services:
     depends_on:
       - minio
   fast-api-server:
-    build:
-      context: .
-      dockerfile: inference_api/dockerfile.fastapi
-    image: fast-api-server:latest
+    image: ghcr.io/ngodinhtruong/federated-medical-mlops-inference-api:main
     container_name: fast-api-server
     ports:
       - "8000:8000"
@@ -249,9 +224,7 @@ services:
       - minio
 
   django-web:
-    build:
-      context: ./webapp
-    image: fl-django-web:latest
+    image: ghcr.io/ngodinhtruong/federated-medical-mlops-webapp:main
     container_name: django-web
     restart: unless-stopped
     environment:
