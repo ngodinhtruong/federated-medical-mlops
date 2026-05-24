@@ -118,7 +118,7 @@ with DAG(
 
     run_eval = DockerOperator(
         task_id="evaluate_and_choose",
-        image="fl-server:latest",
+        image="ghcr.io/ngodinhtruong/federated-medical-mlops-server:main",
         command=(
             "sh -lc '"
             "python /opt/fl/server_evaluate.py "
